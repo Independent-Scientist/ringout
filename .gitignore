@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+.env
+.env.local
+
+# Generated SpacetimeDB CLI artifacts (keep module_bindings COMMITTED: Pages builds need them)
+spacetime.local.json
+.cache/

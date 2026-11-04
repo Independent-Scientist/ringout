@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0b0d10" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <title>RINGOUT</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0b0d10;
+        overflow: hidden;
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: none;
+      }
+      #view {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+        touch-action: none;
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        border: 0;
+      }
+      .swatch {
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #4cc9f0;
+        flex-shrink: 0;
+      }
+      .banner-swatch {
+        width: 13px;
+        height: 13px;
+        margin-right: 8px;
+      }
+      #hud {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        padding: calc(14px + env(safe-area-inset-top, 0px))
+          calc(14px + env(safe-area-inset-right, 0px))
+          calc(14px + env(safe-area-inset-bottom, 0px))
+          calc(14px + env(safe-area-inset-left, 0px));
+        font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-variant-numeric: tabular-nums;
+        color: #cbd5e1;
+        z-index: 20;
+      }
+      #hud b {
+        color: #ffb454;
+        font-weight: 600;
+      }
+      .row {
+        margin-bottom: 4px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .hud-control {
+        pointer-events: auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 6px;
+        cursor: pointer;
+      }
+      #lat {
+        accent-color: #ffb454;
+        width: 104px;
+        cursor: pointer;
+      }
+      #btn-mute {
+        pointer-events: auto;
+        display: inline-block;
+        margin-top: 6px;
+        padding: 3px 9px;
+        background: rgba(22, 27, 34, 0.85);
+        border: 1px solid #30363d;
+        border-radius: 4px;
+        color: #cbd5e1;
+        font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+        cursor: pointer;
+      }
+      #btn-mute:hover {
+        border-color: #ffb454;
+        color: #fff;
+      }
+      #lobby-bar {
+        position: fixed;
+        bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+        left: calc(24px + env(safe-area-inset-left, 0px));
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+        z-index: 10;
+      }
+      .name-form {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin: 0;
+      }
+      #player-name {
+        width: 106px;
+        padding: 7px 10px;
+        background: #0d1117;
+        border: 1px solid #30363d;
+        border-radius: 6px;
+        color: #f0f6fc;
+        font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+        user-select: text;
+        -webkit-user-select: text;
+      }
+      #player-name:focus {
+        outline: none;
+        border-color: #ffb454;
+      }
+      .btn {
+        padding: 8px 14px;
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 6px;
+        color: #c9d1d9;
+        font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+        cursor: pointer;
+        transition: border-color 0.15s ease, color 0.15s ease;
+      }
+      .btn:hover:not(:disabled) {
+        border-color: #ffb454;
+        color: #fff;
+      }
+      .btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .btn.ready-active {
+        background: #0d281e;
+        border-color: #2ea043;
+        color: #7ee787;
+      }
+      .btn.can-start {
+        background: #3b2300;
+        border-color: #ffb454;
+        color: #ffb454;
+        font-weight: 600;
+      }
+      #score-bar {
+        position: fixed;
+        top: calc(14px + env(safe-area-inset-top, 0px));
+        left: 50%;
+        transform: translateX(-50%);
+        pointer-events: none;
+        font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-variant-numeric: tabular-nums;
+        color: #cbd5e1;
+        background: rgba(13, 17, 23, 0.88);
+        border: 1px solid #30363d;
+        border-radius: 6px;
+        padding: 5px 12px;
+        white-space: nowrap;
+        display: none;
+        align-items: center;
+        gap: 8px;
+        z-index: 20;
+      }
+      #score-bar b {
+        color: #ffb454;
+      }
+      #score-vals {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .score-entry {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        border: 1px solid transparent;
+      }
+      .score-entry.is-self {
+        background: rgba(255, 255, 255, 0.12);
+        border-color: rgba(255, 255, 255, 0.45);
+      }
+      .score-name {
+        color: #e2e8f0;
+        font-weight: 500;
+      }
+      #round-banner {
+        position: fixed;
+        top: 22%;
+        left: 50%;
+        transform: translateX(-50%);
+        pointer-events: none;
+        font: 700 20px ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: #ffb454;
+        background: rgba(11, 13, 16, 0.82);
+        border: 1px solid rgba(255, 180, 84, 0.45);
+        border-radius: 8px;
+        padding: 8px 16px;
+        text-shadow: 0 2px 12px rgba(0, 0, 0, 0.85);
+        letter-spacing: 0.04em;
+        white-space: nowrap;
+        display: none;
+        align-items: center;
+      }
+      #elim-flash {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        box-shadow: inset 0 0 80px rgba(247, 37, 133, 0.65);
+        opacity: 0;
+        transition: opacity 0.25s ease-out;
+      }
+      #touch-controls {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        display: none;
+        z-index: 8;
+      }
+      #touch-stick {
+        position: absolute;
+        bottom: calc(22px + env(safe-area-inset-bottom, 0px));
+        left: calc(20px + env(safe-area-inset-left, 0px));
+        width: 108px;
+        height: 108px;
+        border-radius: 50%;
+        background: rgba(22, 27, 34, 0.55);
+        border: 1.5px solid rgba(255, 180, 84, 0.45);
+        pointer-events: auto;
+        touch-action: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #touch-stick.active {
+        border-color: rgba(255, 180, 84, 0.9);
+      }
+      #touch-stick-knob {
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        background: rgba(255, 180, 84, 0.85);
+        box-shadow: 0 0 12px rgba(255, 180, 84, 0.45);
+        pointer-events: none;
+        translate: 0px 0px;
+      }
+      #touch-shove {
+        position: absolute;
+        bottom: calc(30px + env(safe-area-inset-bottom, 0px));
+        right: calc(22px + env(safe-area-inset-right, 0px));
+        width: 92px;
+        height: 92px;
+        border-radius: 50%;
+        background: rgba(59, 35, 0, 0.72);
+        border: 2px solid #ffb454;
+        color: #ffb454;
+        font: 700 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0.06em;
+        pointer-events: auto;
+        touch-action: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        scale: 1;
+        transition: scale 0.08s ease, background-color 0.08s ease;
+      }
+      #touch-shove.active {
+        scale: 0.92;
+        background: rgba(255, 180, 84, 0.32);
+        color: #fff;
+      }
+      #rotate-prompt {
+        position: fixed;
+        inset: 0;
+        z-index: 15;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: calc(20px + env(safe-area-inset-top, 0px))
+          calc(20px + env(safe-area-inset-right, 0px))
+          calc(20px + env(safe-area-inset-bottom, 0px))
+          calc(20px + env(safe-area-inset-left, 0px));
+        background: rgba(11, 13, 16, 0.68);
+        backdrop-filter: blur(2px);
+        color: #f0f6fc;
+        font: 600 16px ui-monospace, SFMono-Regular, Menlo, monospace;
+        text-align: center;
+        pointer-events: auto;
+        touch-action: none;
+      }
+      #rotate-prompt .rotate-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        padding: 18px 24px;
+        background: rgba(13, 17, 23, 0.92);
+        border: 1.5px solid #ffb454;
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.65);
+      }
+      #rotate-prompt .rotate-title {
+        color: #ffb454;
+        font-size: 16px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+      }
+      #rotate-prompt .rotate-sub {
+        color: #94a3b8;
+        font-size: 12px;
+        font-weight: 400;
+      }
+      @media (orientation: portrait) {
+        #rotate-prompt {
+          display: flex;
+        }
+        #touch-controls {
+          display: none !important;
+        }
+      }
+      @media (pointer: coarse), (max-width: 768px) {
+        #touch-controls {
+          display: block;
+        }
+        #lobby-bar {
+          bottom: calc(144px + env(safe-area-inset-bottom, 0px));
+          left: 50%;
+          transform: translateX(-50%);
+          justify-content: center;
+          width: 92vw;
+        }
+        #score-bar {
+          top: calc(10px + env(safe-area-inset-top, 0px));
+          left: auto;
+          right: calc(12px + env(safe-area-inset-right, 0px));
+          transform: none;
+          padding: 3px 8px;
+          font-size: 11px;
+          gap: 5px;
+        }
+        #score-vals {
+          gap: 4px;
+        }
+        .score-entry {
+          padding: 1px 4px;
+          gap: 3px;
+        }
+      }
+      @media (max-height: 480px) and (orientation: landscape) {
+        #hud {
+          padding: calc(8px + env(safe-area-inset-top, 0px))
+            calc(12px + env(safe-area-inset-right, 0px))
+            calc(8px + env(safe-area-inset-bottom, 0px))
+            calc(12px + env(safe-area-inset-left, 0px));
+          font-size: 10.5px;
+        }
+        .row {
+          margin-bottom: 2px;
+        }
+        .hud-control {
+          margin-top: 3px;
+        }
+        #lat {
+          width: 84px;
+        }
+        #btn-mute {
+          margin-top: 3px;
+          padding: 2px 7px;
+          font-size: 10px;
+        }
+        #score-bar {
+          top: calc(8px + env(safe-area-inset-top, 0px));
+          left: auto;
+          right: calc(12px + env(safe-area-inset-right, 0px));
+          transform: none;
+          padding: 3px 8px;
+          font-size: 11px;
+          gap: 5px;
+        }
+        #touch-stick {
+          bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+          left: calc(14px + env(safe-area-inset-left, 0px));
+          width: 86px;
+          height: 86px;
+        }
+        #touch-stick-knob {
+          width: 34px;
+          height: 34px;
+        }
+        #touch-shove {
+          bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+          right: calc(16px + env(safe-area-inset-right, 0px));
+          width: 78px;
+          height: 78px;
+          font-size: 11px;
+        }
+        #lobby-bar {
+          bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+          left: 50%;
+          transform: translateX(-50%);
+          width: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <div id="elim-flash"></div>
+    <div id="rotate-prompt" role="region" aria-label="Orientation prompt">
+      <div class="rotate-card">
+        <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#ffb454" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="6" y="2" width="12" height="20" rx="2" />
+          <path d="M12 18h.01" />
+          <path d="M2 12a10 10 0 0 1 3.5-7.6" />
+          <path d="M2 5v3.5h3.5" />
+        </svg>
+        <div class="rotate-title">Rotate your device</div>
+        <div class="rotate-sub">Landscape mode is required to frame the arena</div>
+      </div>
+    </div>
+    <div id="score-bar">
+      <span>round <b id="round-num">1</b></span>
+      <span>·</span>
+      <span id="score-vals"></span>
+    </div>
+    <div id="round-banner"></div>
+    <div id="hud">
+      <div class="row">status <b id="status">boot</b></div>
+      <div class="row">identity <b id="identity">-</b></div>
+      <div class="row">
+        you: <span id="you-swatch" class="swatch"></span> <b id="you-name">-</b>
+      </div>
+      <div class="row">players <b id="players">0</b></div>
+      <div id="hud-metrics">
+        <div class="row">ping <b id="ping">0</b> ms</div>
+        <div class="row">
+          corr <b id="corr-ack">0</b> ack / <b id="corr-contact">0</b> contact (resim <b id="resim">0</b>)
+        </div>
+        <div class="row">throughput <b id="rows">0</b> rows/s</div>
+      </div>
+      <label class="row hud-control" for="lat">
+        latency <b id="lat-val">0</b> ms
+        <input id="lat" type="range" min="0" max="2" step="1" value="0" />
+      </label>
+      <div class="row">
+        <button id="btn-mute" type="button" aria-pressed="false">sound: on</button>
+      </div>
+    </div>
+    <div id="touch-controls">
+      <div id="touch-stick" aria-label="Move">
+        <div id="touch-stick-knob"></div>
+      </div>
+      <button id="touch-shove" type="button">SHOVE</button>
+    </div>
+    <div id="lobby-bar">
+      <form id="name-form" class="name-form">
+        <label for="player-name" class="sr-only">Player Name</label>
+        <input
+          id="player-name"
+          type="text"
+          maxlength="12"
+          placeholder="Your name"
+          autocomplete="nickname"
+        />
+        <button id="btn-name" class="btn" type="submit">Set</button>
+      </form>
+      <button id="btn-ready" class="btn" type="button">Ready (R)</button>
+      <button id="btn-start" class="btn" type="button" disabled>Start Match (Enter)</button>
+      <button id="btn-rematch" class="btn can-start" type="button" style="display: none">
+        Rematch (M)
+      </button>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

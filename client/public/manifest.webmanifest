@@ -1,0 +1,19 @@
+{
+  "name": "RINGOUT",
+  "short_name": "RINGOUT",
+  "description": "60fps top-down physics arena brawler on SpacetimeDB",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0b0d10",
+  "theme_color": "#0b0d10",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
+

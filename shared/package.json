@@ -1,0 +1,8 @@
+{
+  "name": "@ringout/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tuning constants and wire types shared by the module and the client.",
+  "type": "module",
+  "main": "src/constants.ts"
+}

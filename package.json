@@ -1,0 +1,26 @@
+{
+  "name": "ringout",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Server-authoritative physics arena for 2-4 players. Three.js client, SpacetimeDB module as the only server.",
+  "workspaces": [
+    "client",
+    "module",
+    "shared"
+  ],
+  "scripts": {
+    "check": "tsc -p shared/tsconfig.json --noEmit && tsc -p module/tsconfig.json --noEmit && tsc -p client/tsconfig.json --noEmit",
+    "build:module": "cd module && spacetime build",
+    "publish:local": "spacetime publish ringout-dev --server local --delete-data=always --yes",
+    "gen": "spacetime generate --lang typescript --out-dir client/src/module_bindings --module-path module",
+    "bootstrap": "npm run build:module && npm run publish:local && npm run gen",
+    "dev": "npm run dev --workspace client"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "typescript": "~5.6.2"
+  }
+}

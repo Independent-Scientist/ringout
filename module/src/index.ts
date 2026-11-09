@@ -1,4 +1,4 @@
-import { ScheduleAt } from 'spacetimedb';
+import { Identity, ScheduleAt } from 'spacetimedb';
 import { SenderError, t } from 'spacetimedb/server';
 import spacetimedb, { PLAYER_COLORS } from './schema';
 import * as C from '../../shared/src/constants';
@@ -244,6 +244,7 @@ export const join_lobby = spacetimedb.reducer({ name: t.string() }, (ctx, { name
     match_id: undefined,
     connected_at: ctx.timestamp.microsSinceUnixEpoch,
     violations: 0,
+    is_bot: false,
   });
 });
 
@@ -332,6 +333,91 @@ export const set_ready = spacetimedb.reducer({ ready: t.bool() }, (ctx, { ready 
   ctx.db.Player.id.update({ ...player, ready });
 });
 
+/**
+ * Synthetic identity for a CPU seat. Real identities are derived from a client's public
+ * key, so a value built from a prefix, the match id and a slot can never collide with one,
+ * and no client can ever connect as it.
+ */
+function botIdentityFor(matchId: bigint, slot: number): Identity {
+  const hex = `b07${matchId.toString(16).padStart(8, '0')}${slot.toString(16).padStart(4, '0')}`;
+  return Identity.fromString(hex.padEnd(64, '0'));
+}
+
+export const add_bot = spacetimedb.reducer((ctx) => {
+  const player = ctx.db.Player.id.find(ctx.sender);
+  if (!player || player.match_id === undefined) {
+    throw new SenderError('must be in a match to add a CPU');
+  }
+  const currentMatch = ctx.db.match.id.find(player.match_id);
+  if (!currentMatch || currentMatch.status !== 'lobby') {
+    throw new SenderError('a CPU can only be added in the lobby');
+  }
+
+  const seated = [...ctx.db.Player.iter()].filter((p) => p.match_id === currentMatch.id);
+  if (seated.length >= 4) {
+    throw new SenderError('match is full');
+  }
+
+  let seat: Identity | undefined;
+  for (let slot = 0; slot < 4; slot++) {
+    const candidate = botIdentityFor(currentMatch.id, slot);
+    if (!ctx.db.Player.id.find(candidate)) {
+      seat = candidate;
+      break;
+    }
+  }
+  if (!seat) {
+    throw new SenderError('no free CPU seat');
+  }
+
+  const takenColors = new Set(seated.map((p) => p.color));
+  const colorIndex = PLAYER_COLORS.findIndex((_color, index) => !takenColors.has(index));
+  const color = colorIndex >= 0 ? colorIndex : seated.length % PLAYER_COLORS.length;
+  const seatNumber = seated.filter((p) => p.is_bot).length + 1;
+
+  ctx.db.Player.insert({
+    id: seat,
+    name: `CPU ${seatNumber}`,
+    color,
+    ready: true,
+    match_id: currentMatch.id,
+    connected_at: ctx.timestamp.microsSinceUnixEpoch + BigInt(seatNumber),
+    violations: 0,
+    is_bot: true,
+  });
+
+  ctx.db.bot.insert({
+    owner: seat,
+    match_id: currentMatch.id,
+    seed: Number.parseInt(seat.toHexString().slice(-8), 16) >>> 0,
+    target_id: 0n,
+    release_at_tick: 0n,
+    hold_started_tick: 0n,
+  });
+});
+
+export const remove_bot = spacetimedb.reducer((ctx) => {
+  const player = ctx.db.Player.id.find(ctx.sender);
+  if (!player || player.match_id === undefined) {
+    throw new SenderError('must be in a match to remove a CPU');
+  }
+  const currentMatch = ctx.db.match.id.find(player.match_id);
+  if (!currentMatch || currentMatch.status !== 'lobby') {
+    throw new SenderError('a CPU can only be removed in the lobby');
+  }
+
+  const bots = [...ctx.db.Player.iter()]
+    .filter((p) => p.match_id === currentMatch.id && p.is_bot)
+    .sort((a, b) => (a.connected_at < b.connected_at ? 1 : -1));
+  const last = bots[0];
+  if (!last) {
+    throw new SenderError('no CPU to remove');
+  }
+
+  ctx.db.bot.owner.delete(last.id);
+  ctx.db.Player.id.delete(last.id);
+});
+
 export const start_match = spacetimedb.reducer((ctx) => {
   const player = ctx.db.Player.id.find(ctx.sender);
   if (!player || player.match_id === undefined) {
@@ -399,6 +485,8 @@ export const start_match = spacetimedb.reducer((ctx) => {
       pz,
       vx: 0,
       vz: 0,
+      kx: 0,
+      kz: 0,
       aim_x: aimX,
       aim_z: aimZ,
       charge: 0,

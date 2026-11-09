@@ -20,6 +20,8 @@ export const Body = __t.object("Body", {
   pz: __t.f32(),
   vx: __t.f32(),
   vz: __t.f32(),
+  kx: __t.f32(),
+  kz: __t.f32(),
   aimX: __t.f32(),
   aimZ: __t.f32(),
   charge: __t.f32(),
@@ -31,6 +33,16 @@ export const Body = __t.object("Body", {
   disconnectedAt: __t.u64(),
 });
 export type Body = __Infer<typeof Body>;
+
+export const Bot = __t.object("Bot", {
+  owner: __t.identity(),
+  matchId: __t.u64(),
+  seed: __t.u32(),
+  targetId: __t.u64(),
+  releaseAtTick: __t.u64(),
+  holdStartedTick: __t.u64(),
+});
+export type Bot = __Infer<typeof Bot>;
 
 export const Event = __t.object("Event", {
   id: __t.u64(),
@@ -110,6 +122,7 @@ export const Player = __t.object("Player", {
   matchId: __t.option(__t.u64()),
   connectedAt: __t.u64(),
   violations: __t.u32(),
+  isBot: __t.bool(),
 });
 export type Player = __Infer<typeof Player>;
 

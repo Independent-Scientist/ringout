@@ -1,6 +1,8 @@
 import spacetimedb, { matchTick } from '../schema';
 import * as C from '../../../shared/src/constants';
-import { radiusAt, resolveCollisions, stepBody } from '../sim/step';
+import { IDLE_INTENT, applyCommands, intentToFrame } from '../../../shared/src/commands';
+import { personaFromSeed, think } from '../ai/brain';
+import { coastBody, radiusAt, resolveCollisions, stepBody } from '../sim/step';
 
 function emitEvent(
   ctx: any,
@@ -41,9 +43,12 @@ function pruneOldEvents(ctx: any, matchId: bigint, currentTick: bigint): void {
 
 function resetFinishedMatchToLobby(ctx: any, currentMatch: any, scheduledId: bigint): void {
   for (const b of ctx.db.body.match_id.filter(currentMatch.id)) {
-    if (b.disconnected_at > 0n) {
+    const seat = ctx.db.Player.id.find(b.owner);
+    // Bots exist only for the match they were added to: no connection to wait for.
+    if (b.disconnected_at > 0n || seat?.is_bot) {
       ctx.db.Player.id.delete(b.owner);
     }
+    ctx.db.bot.owner.delete(b.owner);
     ctx.db.body.id.delete(b.id);
   }
   for (const sc of ctx.db.matchScore.match_id.filter(currentMatch.id)) {
@@ -93,6 +98,8 @@ function respawnBodiesForRound(ctx: any, bodies: any[], nextTick: bigint): void 
       pz,
       vx: 0,
       vz: 0,
+      kx: 0,
+      kz: 0,
       aim_x: aimX,
       aim_z: aimZ,
       charge: 0,
@@ -177,6 +184,12 @@ export const tick = spacetimedb.reducer(
       Number(a.id - b.id)
     );
 
+    const botSeats = new Map<string, any>();
+    for (const botRow of ctx.db.bot.match_id.filter(currentMatch.id)) {
+      botSeats.set(botRow.owner.toHexString(), botRow);
+    }
+    const isBotSeat = (owner: any) => botSeats.has(owner.toHexString());
+
     const bodies = allBodies.filter((b) => {
       if (b.disconnected_at > 0n && now - b.disconnected_at >= C.DISCONNECT_GRACE_US) {
         emitEvent(ctx, currentMatch.id, 'elim', b.owner, undefined, b.px, b.pz, 0, 0, nextTick);
@@ -190,6 +203,15 @@ export const tick = spacetimedb.reducer(
       }
       return true;
     });
+
+    // CPUs never disconnect, so a match whose last human left would keep playing to nobody.
+    // A disconnected human still counts while their grace period runs; once the sweep removes
+    // that body there is no one left to play for.
+    if (!bodies.some((b) => !isBotSeat(b.owner))) {
+      console.info(`match ${currentMatch.id} has no human left, returning to lobby`);
+      resetFinishedMatchToLobby(ctx, currentMatch, arg.scheduled_id);
+      return;
+    }
 
     if (bodies.length < 2) {
       const connectedBodies = bodies.filter((b) => b.disconnected_at === 0n);
@@ -234,13 +256,60 @@ export const tick = spacetimedb.reducer(
         .filter((i) => i.match_id === currentMatch.id && !i.applied)
         .sort((x, y) => x.seq - y.seq);
 
+      // A CPU has no connection and no input rows. Its brain emits commands, the commands go
+      // through the same executor a keyboard uses, and the resulting frame joins the same
+      // queue below, so the physics cannot tell the two apart.
+      const botRow = botSeats.get(b.owner.toHexString());
+      if (botRow && b.alive && !isFrozen) {
+        const decision = think(
+          { px: b.px, pz: b.pz, charge: b.charge, cooldown_until: b.cooldown_until },
+          bodies
+            .filter((other) => other.id !== b.id)
+            .map((other) => ({ id: other.id, px: other.px, pz: other.pz, alive: other.alive })),
+          nextArenaRadius,
+          nextTick,
+          {
+            targetId: botRow.target_id,
+            releaseAtTick: botRow.release_at_tick,
+            holdStartedTick: botRow.hold_started_tick,
+          },
+          personaFromSeed(botRow.seed)
+        );
+        const frame = intentToFrame(applyCommands(IDLE_INTENT, decision.commands));
+        pendingInputs.push({
+          id: 0n,
+          match_id: currentMatch.id,
+          owner: b.owner,
+          seq: b.last_seq + 1,
+          mx: frame.mx,
+          mz: frame.mz,
+          ax: frame.ax,
+          az: frame.az,
+          dash: frame.dash,
+          applied: false,
+        });
+        ctx.db.bot.owner.update({
+          ...botRow,
+          target_id: decision.memory.targetId,
+          release_at_tick: decision.memory.releaseAtTick,
+          hold_started_tick: decision.memory.holdStartedTick,
+        });
+      }
+
       if (pendingInputs.length === 0) {
+        // No input this tick: momentum still has to decay, so coast instead of freezing.
+        if (b.alive && !isFrozen) {
+          return {
+            ...coastBody(b, C.DT, nextArenaRadius, nextTick),
+            last_seq: b.last_seq,
+          };
+        }
         return { ...b };
       }
 
       if (!b.alive && currentMatch.status === 'playing') {
         for (const input of pendingInputs) {
-          consumedInputIds.push(input.id);
+          if (input.id > 0n) consumedInputIds.push(input.id); // CPU frames carry no row
         }
         return { ...b };
       }
@@ -268,7 +337,7 @@ export const tick = spacetimedb.reducer(
                 next.aim_z,
                 nextTick
               );
-              consumedInputIds.push(input.id);
+              if (input.id > 0n) consumedInputIds.push(input.id); // CPU frames carry no row
               continue;
             }
             const player = ctx.db.Player.id.find(b.owner);
@@ -286,7 +355,7 @@ export const tick = spacetimedb.reducer(
           last_seq: input.seq,
           server_tick: nextTick,
         };
-        consumedInputIds.push(input.id);
+        if (input.id > 0n) consumedInputIds.push(input.id); // CPU frames carry no row
       }
       return next;
     });
@@ -325,6 +394,8 @@ export const tick = spacetimedb.reducer(
           updated.elim_order = maxElimOrder;
           updated.vx = 0;
           updated.vz = 0;
+          updated.kx = 0;
+          updated.kz = 0;
           updated.charge = 0;
           emitEvent(
             ctx,
@@ -356,6 +427,8 @@ export const tick = spacetimedb.reducer(
         original.pz !== updated.pz ||
         original.vx !== updated.vx ||
         original.vz !== updated.vz ||
+        original.kx !== updated.kx ||
+        original.kz !== updated.kz ||
         original.aim_x !== updated.aim_x ||
         original.aim_z !== updated.aim_z ||
         original.charge !== updated.charge ||

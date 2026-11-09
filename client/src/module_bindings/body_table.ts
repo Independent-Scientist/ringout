@@ -20,6 +20,8 @@ export default __t.row({
   pz: __t.f32(),
   vx: __t.f32(),
   vz: __t.f32(),
+  kx: __t.f32(),
+  kz: __t.f32(),
   aimX: __t.f32().name("aim_x"),
   aimZ: __t.f32().name("aim_z"),
   charge: __t.f32(),

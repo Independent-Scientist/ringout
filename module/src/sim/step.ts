@@ -3,8 +3,12 @@ import * as C from '../../../shared/src/constants';
 export type BodyState = {
   px: number;
   pz: number;
+  /** Velocity the player asked for. Owned by the movement controller. */
   vx: number;
   vz: number;
+  /** Velocity the world gave the body: shove lunges and body-body impulses. Owned by friction. */
+  kx: number;
+  kz: number;
   aim_x: number;
   aim_z: number;
   charge: number;
@@ -30,9 +34,73 @@ export type CollisionContact = {
   impulse: number;
 };
 
+type Motion = {
+  vx: number;
+  vz: number;
+  kx: number;
+  kz: number;
+  charge: number;
+  cooldownUntil: bigint;
+};
+
+/**
+ * Integrate velocity channels, apply the speed cap and the ring-out test.
+ * Shared by stepBody (an input arrived) and coastBody (none did), so momentum
+ * decays identically whether or not the player is still holding a stick.
+ */
+function advance<T extends BodyState>(
+  b: T,
+  m: Motion,
+  dt: number,
+  arenaR: number,
+  tick: bigint
+): T {
+  // Knockback never comes from a stick, so only friction can take it away.
+  const knockbackDecay = Math.exp(-C.KNOCKBACK_FRICTION * dt);
+  let kx = m.kx * knockbackDecay;
+  let kz = m.kz * knockbackDecay;
+  if (Math.hypot(kx, kz) < C.KNOCKBACK_MIN) {
+    kx = 0;
+    kz = 0;
+  }
+
+  // Control tops out at MAX_SPEED, so any excess speed is knockback: scale that channel only,
+  // otherwise the cap would quietly re-implement the bug it exists to bound.
+  const speed = Math.hypot(m.vx + kx, m.vz + kz);
+  const maxAllowedSpeed = C.MAX_SPEED * C.SPEED_CAP_MULT;
+  if (speed > maxAllowedSpeed) {
+    const scale = maxAllowedSpeed / speed;
+    kx *= scale;
+    kz *= scale;
+  }
+
+  const px = b.px + (m.vx + kx) * dt;
+  const pz = b.pz + (m.vz + kz) * dt;
+  const isEliminated = Math.hypot(px, pz) > arenaR + C.ELIM_MARGIN;
+
+  return {
+    ...b,
+    px,
+    pz,
+    vx: m.vx,
+    vz: m.vz,
+    kx,
+    kz,
+    charge: m.charge,
+    alive: !isEliminated,
+    cooldown_until: m.cooldownUntil,
+    server_tick: tick,
+  };
+}
+
 /**
  * Step a single body forward by dt with a given input.
  * Pure, deterministic integrator shared across server and client.
+ *
+ * Velocity is split in two channels: `v` is what the stick asks for and is servo-driven
+ * (snappy, clamped to MAX_SPEED); `k` is what the world did to the body (shove lunge,
+ * collision impulse) and only friction removes it. The stick can lean against a shove —
+ * while staggered it steers at STAGGER_CONTROL strength — but it can never cancel one.
  */
 export function stepBody<T extends BodyState>(
   b: T,
@@ -54,6 +122,8 @@ export function stepBody<T extends BodyState>(
       ...b,
       vx: 0,
       vz: 0,
+      kx: 0,
+      kz: 0,
       aim_x: aimX,
       aim_z: aimZ,
       charge: 0,
@@ -65,13 +135,17 @@ export function stepBody<T extends BodyState>(
   const chargeDelta = i.dash ? dt / C.CHARGE_TIME : 0;
   const charge = Math.min(1, b.charge + chargeDelta);
 
-  // 3. Movement: approach target velocity stably without overshoot
+  // 3. Stagger: a live shove takes authority away from the stick without removing it
+  const knockbackSpeed = Math.hypot(b.kx, b.kz);
+  const authority = knockbackSpeed > C.STAGGER_MIN ? C.STAGGER_CONTROL : 1;
+
+  // 4. Movement: approach target velocity stably without overshoot
   let vx = b.vx;
   let vz = b.vz;
   const moveLength = Math.hypot(i.mx, i.mz);
   if (moveLength > C.EPSILON) {
-    const targetVx = (i.mx / moveLength) * C.MAX_SPEED;
-    const targetVz = (i.mz / moveLength) * C.MAX_SPEED;
+    const targetVx = (i.mx / moveLength) * C.MAX_SPEED * authority;
+    const targetVz = (i.mz / moveLength) * C.MAX_SPEED * authority;
     const accelRate = Math.min(1, C.MOVE_ACCEL * dt);
     vx += (targetVx - vx) * accelRate;
     vz += (targetVz - vz) * accelRate;
@@ -81,51 +155,63 @@ export function stepBody<T extends BodyState>(
     vz *= friction;
   }
 
-  // 4. Release = shove (server-only trigger; never predicted for hits)
+  // 5. Release = shove (server-only trigger; never predicted for hits). The lunge is
+  //    knockback, so the shover's own stick cannot eat it either.
+  let kx = b.kx;
+  let kz = b.kz;
   let cooldownUntil = b.cooldown_until;
   if (!i.dash && charge > C.SHOVE_MIN_CHARGE && tick >= b.cooldown_until) {
     const shovePower = C.SHOVE_MIN + (C.SHOVE_MAX - C.SHOVE_MIN) * charge;
-    vx += aimX * shovePower;
-    vz += aimZ * shovePower;
-    vx -= aimX * shovePower * C.SELF_RECOIL;
-    vz -= aimZ * shovePower * C.SELF_RECOIL;
+    const lunge = shovePower * (1 - C.SELF_RECOIL);
+    kx += aimX * lunge;
+    kz += aimZ * lunge;
     const cooldownTicks = BigInt(Math.ceil(C.SHOVE_COOLDOWN * C.TICK_HZ));
     cooldownUntil = tick + cooldownTicks;
   }
 
-  // 5. Integrate position
-  const px = b.px + vx * dt;
-  const pz = b.pz + vz * dt;
+  return advance(
+    b,
+    { vx, vz, kx, kz, charge: i.dash ? charge : 0, cooldownUntil },
+    dt,
+    arenaR,
+    tick
+  );
+}
 
-  // 6. Cap speed to prevent tunnelling
-  const speed = Math.hypot(vx, vz);
-  const maxAllowedSpeed = C.MAX_SPEED * C.SPEED_CAP_MULT;
-  if (speed > maxAllowedSpeed) {
-    vx *= maxAllowedSpeed / speed;
-    vz *= maxAllowedSpeed / speed;
-  }
-
-  // 7. Ring-out check
-  const isEliminated = Math.hypot(px, pz) > arenaR + C.ELIM_MARGIN;
-
-  return {
-    ...b,
-    px,
-    pz,
-    vx,
-    vz,
-    aim_x: aimX,
-    aim_z: aimZ,
-    charge: i.dash ? charge : 0,
-    alive: !isEliminated,
-    cooldown_until: cooldownUntil,
-    server_tick: tick,
-  };
+/**
+ * Advance a body that sent no input this tick: friction on both channels, nothing else.
+ * Without this a body with an empty input queue never integrates and a shove would hang
+ * on it until the player came back.
+ */
+export function coastBody<T extends BodyState>(
+  b: T,
+  dt: number,
+  arenaR: number,
+  tick: bigint
+): T {
+  if (!b.alive) return b;
+  const friction = Math.exp(-C.GROUND_FRICTION * dt);
+  return advance(
+    b,
+    {
+      vx: b.vx * friction,
+      vz: b.vz * friction,
+      kx: b.kx,
+      kz: b.kz,
+      charge: b.charge,
+      cooldownUntil: b.cooldown_until,
+    },
+    dt,
+    arenaR,
+    tick
+  );
 }
 
 /**
  * Resolve pairwise collisions between bodies in the arena.
  * Bodies must be processed in sorted id order for determinism.
+ * Impulses land on the knockback channel, so a collision shakes the body without
+ * handing the stick a way to cancel it next tick.
  */
 export function resolveCollisions(bodies: BodyState[], _dt: number): CollisionContact[] {
   const contacts: CollisionContact[] = [];
@@ -156,16 +242,17 @@ export function resolveCollisions(bodies: BodyState[], _dt: number): CollisionCo
       second.px += (normalX * overlap) / 2;
       second.pz += (normalZ * overlap) / 2;
 
-      // Elastic impulse along normal
+      // Elastic impulse along normal, measured on total velocity (control + knockback)
       const relativeVelocity =
-        (second.vx - first.vx) * normalX + (second.vz - first.vz) * normalZ;
+        (second.vx + second.kx - first.vx - first.kx) * normalX +
+        (second.vz + second.kz - first.vz - first.kz) * normalZ;
       if (relativeVelocity > 0) continue;
 
       const impulse = (-(1 + C.RESTITUTION) * relativeVelocity) / 2;
-      first.vx -= impulse * normalX;
-      first.vz -= impulse * normalZ;
-      second.vx += impulse * normalX;
-      second.vz += impulse * normalZ;
+      first.kx -= impulse * normalX;
+      first.kz -= impulse * normalZ;
+      second.kx += impulse * normalX;
+      second.kz += impulse * normalZ;
 
       contacts.push({
         indexA: a,

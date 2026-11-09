@@ -30,6 +30,8 @@ export type LobbyInfo = {
   readyCount: number;
   totalCount: number;
   minPlayers: number;
+  maxPlayers: number;
+  cpuCount: number;
   hostName: string;
 };
 
@@ -83,6 +85,10 @@ export type ActiveConnection = {
   toggleReady: () => void;
   startMatch: () => void;
   rematch: () => void;
+  /** Seat a server-side CPU opponent in the lobby. */
+  addBot: () => void;
+  /** Remove the most recently seated CPU. */
+  removeBot: () => void;
   getMyIdentity: () => string;
   isAutopilot: () => boolean;
 };
@@ -116,6 +122,8 @@ function toBodySnapshot(row: Body): ServerBodySnapshot {
     pz: row.pz,
     vx: row.vx,
     vz: row.vz,
+    kx: row.kx,
+    kz: row.kz,
     aimX: row.aimX,
     aimZ: row.aimZ,
     charge: row.charge,
@@ -309,6 +317,7 @@ export function connect(
     const isHost = host?.id.toHexString() === myIdentityHex;
     const readyCount = matchPlayers.filter((p) => p.ready).length;
     const totalCount = matchPlayers.length;
+    const cpuCount = matchPlayers.filter((p) => p.isBot).length;
     // Any ready player can start once the minimum is met; an idle host must not
     // block a lobby of willing players.
     const canStart = me.ready && readyCount >= MIN_PLAYERS && currentMatch.status === 'lobby';
@@ -376,6 +385,10 @@ export function connect(
       readyCount,
       totalCount,
       minPlayers: MIN_PLAYERS,
+      // The module caps a match at four seats; the lobby needs the same number to disable
+      // the CPU button before the reducer has to refuse.
+      maxPlayers: 4,
+      cpuCount,
       hostName,
     };
 
@@ -1125,6 +1138,12 @@ export function connect(
     },
     rematch() {
       latency.send(() => connection.reducers.rematch({}).catch(() => {}));
+    },
+    addBot() {
+      latency.send(() => connection.reducers.addBot({}).catch(() => {}));
+    },
+    removeBot() {
+      latency.send(() => connection.reducers.removeBot({}).catch(() => {}));
     },
     getMyIdentity: () => myIdentityHex,
     isAutopilot: () => autopilot !== null,

@@ -24,6 +24,14 @@ export const SELF_RECOIL = 0.25; // fraction of impulse applied backwards
 export const SHOVE_MIN_CHARGE = 0.15;
 export const SPEED_CAP_MULT = 2.5;
 
+// Knockback: the channel the world writes to, never the stick.
+// It decays on its own so a shove always travels, and it costs the player
+// input authority (the stagger window) without silencing them.
+export const KNOCKBACK_FRICTION = 1.6; // 1/s decay of shove and collision momentum
+export const KNOCKBACK_MIN = 0.05; // u/s below which the channel snaps to zero
+export const STAGGER_CONTROL = 0.35; // fraction of MAX_SPEED the stick may ask for while staggered
+export const STAGGER_MIN = 2.0; // u/s of live knockback that counts as staggered
+
 // Arena boundaries and shrinking
 export const ARENA_R_START = 14;
 export const ARENA_R_END = 5;

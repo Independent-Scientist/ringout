@@ -17,6 +17,9 @@ export type ServerBodySnapshot = {
   pz: number;
   vx: number;
   vz: number;
+  /** Knockback velocity, authored by the server: shove lunges and collision impulses. */
+  kx?: number;
+  kz?: number;
   aimX: number;
   aimZ: number;
   charge: number;
@@ -85,6 +88,10 @@ function fromRow(row: ServerBodySnapshot): BodyState {
     pz: row.pz,
     vx: row.vx,
     vz: row.vz,
+    // A module that predates the knockback channel sends no kx/kz; treat that as zero
+    // rather than poisoning the replay with NaN.
+    kx: row.kx ?? 0,
+    kz: row.kz ?? 0,
     aim_x: row.aimX,
     aim_z: row.aimZ,
     charge: row.charge,
@@ -124,6 +131,8 @@ export function createPredictionController(): PredictionController {
     pz: 0,
     vx: 0,
     vz: 0,
+    kx: 0,
+    kz: 0,
     aim_x: 0,
     aim_z: -1,
     charge: 0,

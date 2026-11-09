@@ -14,6 +14,8 @@ export const Player = table(
     match_id: t.option(t.u64()),
     connected_at: t.u64(),
     violations: t.u32(),
+    /** True for a server-side CPU seat. Bots ready themselves and never disconnect. */
+    is_bot: t.bool(),
   }
 );
 
@@ -49,6 +51,9 @@ export const body = table(
     pz: t.f32(),
     vx: t.f32(),
     vz: t.f32(),
+    /** Knockback velocity: shove lunges and collision impulses live here, not in vx/vz. */
+    kx: t.f32(),
+    kz: t.f32(),
     aim_x: t.f32(),
     aim_z: t.f32(),
     charge: t.f32(),
@@ -107,6 +112,22 @@ export const event = table(
   }
 );
 
+/**
+ * CPU seat brain state: what a bot is chasing and when it lets go of the shove button.
+ * One row per bot in a match; deleted with the match.
+ */
+export const bot = table(
+  { name: 'bot', public: true },
+  {
+    owner: t.identity().primaryKey(),
+    match_id: t.u64().index('btree'),
+    seed: t.u32(),
+    target_id: t.u64(),
+    release_at_tick: t.u64(),
+    hold_started_tick: t.u64(),
+  }
+);
+
 /** Schedule table driving the authoritative 30 Hz tick loop per match. */
 export const matchTick = table(
   { name: 'match_tick', public: true },
@@ -124,6 +145,7 @@ export const InputFrame = inputFrame;
 export const MatchScore = matchScore;
 export const Event = event;
 export const MatchTick = matchTick;
+export const Bot = bot;
 
 /** The four robot colours, by index. Kept here so the server and the HUD agree. */
 export const PLAYER_COLORS = ['cyan', 'magenta', 'violet', 'amber'] as const;
@@ -135,6 +157,7 @@ const spacetimedb = schema({
   inputFrame,
   matchScore,
   event,
+  bot,
   matchTick,
 });
 

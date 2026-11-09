@@ -23,6 +23,8 @@ const nameInput = document.querySelector<HTMLInputElement>('#player-name');
 const readyButton = document.querySelector<HTMLButtonElement>('#btn-ready');
 const startButton = document.querySelector<HTMLButtonElement>('#btn-start');
 const rematchButton = document.querySelector<HTMLButtonElement>('#btn-rematch');
+const addCpuButton = document.querySelector<HTMLButtonElement>('#btn-add-cpu');
+const removeCpuButton = document.querySelector<HTMLButtonElement>('#btn-remove-cpu');
 const touchStick = document.querySelector<HTMLElement>('#touch-stick');
 const touchKnob = document.querySelector<HTMLElement>('#touch-stick-knob');
 const touchShove = document.querySelector<HTMLElement>('#touch-shove');
@@ -162,6 +164,14 @@ const activeConn = connect(
       if (rematchButton) {
         rematchButton.style.display = isFinished ? 'inline-block' : 'none';
       }
+      if (addCpuButton) {
+        addCpuButton.style.display = inLobby ? 'inline-block' : 'none';
+        addCpuButton.disabled = !(lobbyInfo && lobbyInfo.totalCount < lobbyInfo.maxPlayers);
+      }
+      if (removeCpuButton) {
+        removeCpuButton.style.display = inLobby ? 'inline-block' : 'none';
+        removeCpuButton.disabled = !(lobbyInfo && lobbyInfo.cpuCount > 0);
+      }
 
       hud.setScore(!inLobby, round, scoreEntries);
       hud.setBanner(bannerText, bannerColorCss);
@@ -221,6 +231,14 @@ if (readyButton) {
 
 if (startButton) {
   startButton.addEventListener('click', () => activeConn.startMatch());
+}
+
+if (addCpuButton) {
+  addCpuButton.addEventListener('click', () => activeConn.addBot());
+}
+
+if (removeCpuButton) {
+  removeCpuButton.addEventListener('click', () => activeConn.removeBot());
 }
 
 if (rematchButton) {

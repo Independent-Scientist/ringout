@@ -12,6 +12,9 @@ export type RemoteRowData = {
   pz: number;
   vx: number;
   vz: number;
+  /** Knockback velocity; extrapolation needs total velocity, not just the stick's share. */
+  kx?: number;
+  kz?: number;
   aimX: number;
   aimZ: number;
   charge: number;
@@ -58,6 +61,8 @@ export function createRemoteInterpolator(): RemoteInterpolator {
 
   return {
     pushSnapshot(row: RemoteRowData, nowMs = performance.now()) {
+      const velX = row.vx + (row.kx ?? 0);
+      const velZ = row.vz + (row.kz ?? 0);
       const key = row.id.toString();
       let track = tracks.get(key);
       if (!track) {
@@ -67,8 +72,8 @@ export function createRemoteInterpolator(): RemoteInterpolator {
               t: nowMs,
               px: row.px,
               pz: row.pz,
-              vx: row.vx,
-              vz: row.vz,
+              vx: velX,
+              vz: velZ,
               aimX: row.aimX,
               aimZ: row.aimZ,
               charge: row.charge,
@@ -93,8 +98,8 @@ export function createRemoteInterpolator(): RemoteInterpolator {
             t: nowMs,
             px: row.px,
             pz: row.pz,
-            vx: row.vx,
-            vz: row.vz,
+            vx: velX,
+            vz: velZ,
             aimX: row.aimX,
             aimZ: row.aimZ,
             charge: row.charge,
@@ -122,8 +127,8 @@ export function createRemoteInterpolator(): RemoteInterpolator {
               t: nowMs,
               px: row.px,
               pz: row.pz,
-              vx: row.vx,
-              vz: row.vz,
+              vx: velX,
+              vz: velZ,
               aimX: row.aimX,
               aimZ: row.aimZ,
               charge: row.charge,
@@ -145,8 +150,8 @@ export function createRemoteInterpolator(): RemoteInterpolator {
         t: timestamp,
         px: row.px,
         pz: row.pz,
-        vx: row.vx,
-        vz: row.vz,
+        vx: velX,
+        vz: velZ,
         aimX: row.aimX,
         aimZ: row.aimZ,
         charge: row.charge,

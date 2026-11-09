@@ -34,10 +34,12 @@ import {
 } from "spacetimedb";
 
 // Import all reducer arg schemas
+import AddBotReducer from "./add_bot_reducer";
 import CreateMatchReducer from "./create_match_reducer";
 import JoinLobbyReducer from "./join_lobby_reducer";
 import JoinMatchReducer from "./join_match_reducer";
 import RematchReducer from "./rematch_reducer";
+import RemoveBotReducer from "./remove_bot_reducer";
 import SetNameReducer from "./set_name_reducer";
 import SetReadyReducer from "./set_ready_reducer";
 import StartMatchReducer from "./start_match_reducer";
@@ -48,6 +50,7 @@ import SubmitInputsReducer from "./submit_inputs_reducer";
 // Import all table schema definitions
 import PlayerRow from "./player_table";
 import BodyRow from "./body_table";
+import BotRow from "./bot_table";
 import EventRow from "./event_table";
 import InputFrameRow from "./input_frame_table";
 import MatchRow from "./match_table";
@@ -75,6 +78,20 @@ const tablesSchema = __schema({
       { name: 'body_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, BodyRow),
+  bot: __table({
+    name: 'bot',
+    indexes: [
+      { accessor: 'match_id', name: 'bot_match_id_idx_btree', algorithm: 'btree', columns: [
+        'matchId',
+      ] },
+      { accessor: 'owner', name: 'bot_owner_idx_btree', algorithm: 'btree', columns: [
+        'owner',
+      ] },
+    ],
+    constraints: [
+      { name: 'bot_owner_key', constraint: 'unique', columns: ['owner'] },
+    ],
+  }, BotRow),
   event: __table({
     name: 'event',
     indexes: [
@@ -166,10 +183,12 @@ const tablesSchema = __schema({
 
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
+  __reducerSchema("add_bot", AddBotReducer),
   __reducerSchema("create_match", CreateMatchReducer),
   __reducerSchema("join_lobby", JoinLobbyReducer),
   __reducerSchema("join_match", JoinMatchReducer),
   __reducerSchema("rematch", RematchReducer),
+  __reducerSchema("remove_bot", RemoveBotReducer),
   __reducerSchema("set_name", SetNameReducer),
   __reducerSchema("set_ready", SetReadyReducer),
   __reducerSchema("start_match", StartMatchReducer),

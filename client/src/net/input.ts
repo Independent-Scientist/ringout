@@ -1,3 +1,6 @@
+import type { Command } from '../../../shared/src/commands';
+import { createCommandExecutor } from '../../../shared/src/commands';
+
 export type InputState = {
   mx: number;
   mz: number;
@@ -6,9 +9,11 @@ export type InputState = {
   dash: boolean;
 };
 
+// The keyboard is one source of Commands, not a source of input frames: a held key becomes a
+// held command, and the shared executor turns both into exactly one frame per tick.
+const commandExecutor = createCommandExecutor();
+
 const keys = new Set<string>();
-let lastFacingX = 0;
-let lastFacingZ = -1;
 
 let stickMx = 0;
 let stickMz = 0;
@@ -103,10 +108,13 @@ export function bindTouchControls(
 }
 
 /**
- * Samples current movement, aim direction, and dash state.
- * WASD or virtual stick moves; arrows, stick, or mouse aim; space or shove button charges dash.
+ * Samples current movement, aim direction, and dash state as Commands, then runs them through
+ * the shared executor. WASD or virtual stick moves; arrows or the stick aim; space or the
+ * shove button charges.
  */
 export function sampleInput(): InputState {
+  const commands: Command[] = [];
+
   let mx = stickMx;
   let mz = stickMz;
 
@@ -116,16 +124,7 @@ export function sampleInput(): InputState {
   if (keys.has('KeyD')) mx += 1;
 
   const moveLen = Math.hypot(mx, mz);
-  if (moveLen > 1) {
-    mx /= moveLen;
-    mz /= moveLen;
-  }
-
-  // Movement updates lastFacing whenever non-zero
-  if (moveLen > 0.001) {
-    lastFacingX = mx / moveLen;
-    lastFacingZ = mz / moveLen;
-  }
+  commands.push({ kind: 'steer', mx, mz });
 
   let ax = 0;
   let az = 0;
@@ -135,25 +134,16 @@ export function sampleInput(): InputState {
   if (keys.has('ArrowRight')) ax += 1;
 
   const arrowLen = Math.hypot(ax, az);
-  let aimX = lastFacingX;
-  let aimZ = lastFacingZ;
-
   if (arrowLen > 0.001) {
-    aimX = ax / arrowLen;
-    aimZ = az / arrowLen;
-    lastFacingX = aimX;
-    lastFacingZ = aimZ;
+    // Arrows are an explicit facing override; otherwise facing follows the stick.
+    commands.push({ kind: 'aim', ax, az });
+  } else if (moveLen > 0.001) {
+    commands.push({ kind: 'aim', ax: mx, az: mz });
   }
 
-  const dash = keys.has('Space') || touchDash;
+  commands.push({ kind: 'charge', hold: keys.has('Space') || touchDash });
 
-  return {
-    mx,
-    mz,
-    ax: aimX,
-    az: aimZ,
-    dash,
-  };
+  return commandExecutor.apply(commands);
 }
 
 const AUTOPILOT_OMEGA = 0.77;
@@ -172,11 +162,9 @@ export function sampleAutopilotInput(elapsedSeconds: number, spawnAngle = 0): In
   const cycle = elapsedSeconds % 1.8;
   const dash = AUTOPILOT_SHOVE && cycle >= 0.4 && cycle <= 0.9;
   const aimSign = AUTOPILOT_SHOVE ? -1 : 1;
-  return {
-    mx: -Math.sin(angle),
-    mz: Math.cos(angle),
-    ax: aimSign * Math.cos(angle),
-    az: aimSign * Math.sin(angle),
-    dash,
-  };
+  return createCommandExecutor().apply([
+    { kind: 'steer', mx: -Math.sin(angle), mz: Math.cos(angle) },
+    { kind: 'aim', ax: aimSign * Math.cos(angle), az: aimSign * Math.sin(angle) },
+    { kind: 'charge', hold: dash },
+  ]);
 }

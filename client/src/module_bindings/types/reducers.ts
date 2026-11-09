@@ -6,19 +6,23 @@
 import { type Infer as __Infer } from "spacetimedb";
 
 // Import all reducer arg schemas
+import AddBotReducer from "../add_bot_reducer";
 import CreateMatchReducer from "../create_match_reducer";
 import JoinLobbyReducer from "../join_lobby_reducer";
 import JoinMatchReducer from "../join_match_reducer";
 import RematchReducer from "../rematch_reducer";
+import RemoveBotReducer from "../remove_bot_reducer";
 import SetNameReducer from "../set_name_reducer";
 import SetReadyReducer from "../set_ready_reducer";
 import StartMatchReducer from "../start_match_reducer";
 import SubmitInputsReducer from "../submit_inputs_reducer";
 
+export type AddBotParams = __Infer<typeof AddBotReducer>;
 export type CreateMatchParams = __Infer<typeof CreateMatchReducer>;
 export type JoinLobbyParams = __Infer<typeof JoinLobbyReducer>;
 export type JoinMatchParams = __Infer<typeof JoinMatchReducer>;
 export type RematchParams = __Infer<typeof RematchReducer>;
+export type RemoveBotParams = __Infer<typeof RemoveBotReducer>;
 export type SetNameParams = __Infer<typeof SetNameReducer>;
 export type SetReadyParams = __Infer<typeof SetReadyReducer>;
 export type StartMatchParams = __Infer<typeof StartMatchReducer>;

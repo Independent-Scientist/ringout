@@ -18,4 +18,5 @@ export default __t.row({
   matchId: __t.option(__t.u64()).name("match_id"),
   connectedAt: __t.u64().name("connected_at"),
   violations: __t.u32(),
+  isBot: __t.bool().name("is_bot"),
 });

@@ -6,10 +6,11 @@ Server-authoritative physics arena for 2–4 players. Three.js client, Spacetime
 > a command or URL named next to it; nothing here is an estimate.
 
 **[Play it](https://independent-scientist.github.io/ringout/)** — no install, and two browser tabs are two
-players. **Netcode write-up:** [`docs/netcode.md`](docs/netcode.md). **Demo:** [70-second clip
-(mp4)](docs/media/demo.mp4) of one full match on the deployed build.
+players. Alone, seat up to three CPU opponents from the lobby (`+ CPU`) and play a full match.
+**Netcode write-up:** [`docs/netcode.md`](docs/netcode.md). **Demo:** [70-second clip
+(mp4)](docs/media/demo.mp4) of a round on the deployed build.
 
-![A round on the deployed build: four robots converging, an elimination, and the round banner](docs/media/hero.gif)
+![A round on the deployed build: four robots converging and an elimination](docs/media/hero.gif)
 
 On a phone it locks to landscape and gives you a stick and a shove button:
 
@@ -32,11 +33,22 @@ stays. Best of three rounds, ninety seconds per round.
   is smoothed away. The HUD splits reconciliations into `ack` corrections (a server row disagrees with the
   replayed single-body prediction — the netcode error) and `contact` corrections (the server applied a body-body
   collision or shove impulse the client deliberately does not predict — the design trade-off).
-  At 250 ms one-way: a clean orbit produces `0 ack / 0 contact`; a 4-player brawl produces `~618 contact/min`,
-  which is the physics working, not the netcode failing; and with `10%` of inputs dropped plus `500 ms` stalls
-  every 5 s (`?autopilot=250&chaos=10&pin=1`) the ack rate is `33 per 30 s` with `0` snaps, recovering to
-  `0 corr/min` within 2 s of the chaos stopping. Inputs are sent with the previous unacked frame attached, so a
-  single lost packet costs nothing.
+  At 250 ms one-way, four scripted clients (`?brawl=1&autopilot=250&seconds=25`) produced `2 ack / 5 contact`
+  corrections in 25 s with `0` snaps and `112` resim steps. Contact corrections are the physics working, not the
+  netcode failing: the client deliberately does not predict a body-body collision. Inputs are sent with the
+  previous unacked frame attached, so a single lost packet costs nothing; the chaos harness
+  (`?autopilot=250&chaos=10&pin=1`) drops inputs and stalls the send path and prints `RINGOUT_METRICS` when its
+  window closes.
+- **Momentum the stick cannot cancel.** Velocity is split into two channels: `v`, which the stick asks for and a
+  servo drives, and `k`, which the world writes — shove lunges and collision impulses. Friction is the only thing
+  that removes `k`, and while it is live the stick steers at 35 % authority. A shove therefore lands on a player
+  who is actively walking into it: measured on the shared integrator, a victim pushing back keeps 69 % of the
+  knockback 250 ms after contact and travels 2.82 m in the first second, where the old single-channel model left
+  them 0.60 m *behind* where they started.
+- **CPU opponents on the player's own input path.** A bot is a server-side seat with a synthetic identity. Its
+  brain emits `Command`s — the same `steer` / `aim` / `charge` vocabulary a keyboard produces — which run through
+  the same executor into the same input frame and the same `stepBody`. It cannot move in a way a player could
+  not, and adding it needed no branch in the physics.
 - **A latency simulator you can toggle.** 0 / 100 / 250 ms one-way, wired through both directions, with the
   resulting correction rate on screen. The hard part is observable on purpose.
 - **One integrator, two runners.** The browser imports the module's simulation file through a Vite alias, so
@@ -46,9 +58,9 @@ stays. Best of three rounds, ninety seconds per round.
 
 ![RINGOUT architecture: a SpacetimeDB module and a Three.js client that share one simulation file](docs/media/architecture.svg)
 
-The module owns the world: `player`, `match`, `match_score`, `body`, `input_frame`, `event` and the
+The module owns the world: `player`, `match`, `match_score`, `body`, `input_frame`, `event`, `bot` and the
 `match_tick` schedule, written by the reducers (`join_lobby`, `create_match`, `join_match`, `set_ready`,
-`start_match`, `submit_inputs`) and by the 30 Hz tick. Body rows stream to the browser over the WebSocket; the
+`add_bot`, `remove_bot`, `start_match`, `submit_inputs`) and by the 30 Hz tick. Body rows stream to the browser over the WebSocket; the
 client interpolates other players, predicts its own body, and renders. Both runners import
 `module/src/sim/step.ts`, so prediction and authority cannot diverge by construction. The diagram's source is
 [`docs/diagrams/architecture.html`](docs/diagrams/architecture.html).
@@ -62,9 +74,9 @@ Each row names how it was produced; the longer version, including what was rejec
 | --- | --- |
 | Server tick | 33.33 ms mean, σ 1.15–2.51 ms (4 bots, 45 s) |
 | Determinism | 1000 ticks, byte-identical state |
-| Corrections at 250 ms, 0 % / 10 % input loss | 0 / 33 ack corrections per 30 s, 0 snaps |
-| Contact corrections, 4-player brawl | ~618/min (not netcode error — see netcode.md) |
-| Mean correction magnitude | 11.1 cm contact, 18–24 cm under chaos |
+| Corrections at 250 ms, 4-player brawl | 2 ack / 5 contact in 25 s, 0 snaps (`?brawl=1&autopilot=250&seconds=25`) |
+| Shove against a victim walking into it | 69 % of knockback kept at 250 ms, 2.82 m slide (`node tools/momentum.test.ts`) |
+| CPU match, 3 bots + 1 human | 408 shove releases, 478 contacts, eliminations, both round outcomes (`node tools/cpu-match.ts`) |
 | Throughput, 3–4 players | 100–180 rows/s per client |
 | Client bundle | 190.08 kB gzip |
 | Frame time, laptop iGPU | 1.22 ms mean, 59.6 fps, 24 draw calls |

@@ -25,6 +25,42 @@ accepting input, and the body must be alive. A duplicate `seq` is **skipped sile
 increments `player.violations` and throws, which rolls the reducer back. That split matters: after redundancy
 landed, a resent frame is normal traffic, not cheating.
 
+## Movement and momentum
+
+The body carries two velocities, and the distinction is the whole game feel:
+
+```
+v  control   target = stick * MAX_SPEED, approached by a servo (MOVE_ACCEL 10/s)
+k  knockback written only by shove lunges and body-body impulses, removed only by friction (1.6/s)
+position += (v + k) * dt
+```
+
+Anything the world does to a body lands on `k`, so the stick cannot delete it: while `|k| > 2 u/s` the player is
+staggered and steers at 35 % authority (`STAGGER_CONTROL`), which is enough to lean against a shove and not
+enough to cancel one. A body with an empty input queue coasts rather than freezing, so momentum decays even when
+packets stop arriving.
+
+This replaced a single-channel model where every impulse was written into `v` and the servo — 33 % of the gap
+per tick at 30 Hz — erased it inside 100 ms. A victim walking into a shove ended up 0.60 m *behind* their start
+position; with the split they keep 69 % of the knockback at 250 ms and travel 2.82 m in the first second. The
+measurement lives in `tools/momentum.test.ts` and runs on the same `stepBody` the server and the browser import.
+
+## CPU seats and the command path
+
+A CPU is a `player` row with `is_bot`, a synthetic identity (`0xb07…`, which no client can ever connect as) and a
+`bot` row holding its memory. Its brain (`module/src/ai/brain.ts`) is a pure function of the body, its rivals,
+the tick and a seed, and its only output is a list of `Command`s:
+
+```ts
+{ kind: 'steer', mx, mz } | { kind: 'aim', ax, az } | { kind: 'charge', hold }
+```
+
+The tick feeds those through the same `createCommandExecutor()` a keyboard uses, producing one `InputFrame`,
+which joins the same queue and the same `stepBody` call as a human's. There is no bot branch in the physics, no
+bot-only velocity, and no way for a bot to teleport: if the command vocabulary cannot express it, the server
+cannot do it. The lobby reducer refuses a fifth seat, and a match whose last human leaves returns itself to the
+lobby instead of playing to an audience of CPUs.
+
 ## Prediction and reconciliation
 
 ```
@@ -77,17 +113,16 @@ the server skips duplicates. A single lost packet therefore costs nothing; two i
 | --- | --- | --- |
 | Server tick | 33.33 ms mean, σ 1.15–2.51 ms | `node tools/bots.ts --n 4 --seconds 45 --print-metrics` |
 | Determinism | 1000 ticks, byte-identical state | `node tools/determinism.test.ts` |
-| Clean orbit, 250 ms | 0 ack / 0 contact corrections | `?autopilot=250&chaos=0` for 30 s |
-| 10 % input loss, 250 ms | 33 ack corrections in 30 s, 0 snaps | `?autopilot=250&chaos=10&pin=1` for 30 s |
-| Contact corrections, 4-player brawl | ~618/min, 9 resim steps | `?brawl=1` (autopilot peers) |
-| Contact corrections, single pin body | 24.71/min, 11.11 cm mean | `?autopilot=0&pin=1` for 60 s |
+| Corrections, 4-player brawl, 250 ms | 2 ack (3.9/min) / 5 contact (9.76/min), 0 snaps, 112 resim steps | `?brawl=1&autopilot=250&seconds=25` |
+| Shove retention, victim pushing back | 69 % of knockback at 250 ms, 2.82 m slide in 1 s | `node tools/momentum.test.ts` |
+| CPU match | 408 shove releases, 478 contacts, eliminations, both round outcomes | `node tools/cpu-match.ts` |
 | Client bundle | 190.08 kB gzip | `npm run build --workspace client`, then gzip |
 | Frame time | 1.22 ms mean, 59.6 fps, 24 draw calls | `window.__ringout.perf()` on the deployed build |
 | RTT, Brazil → maincloud | 157–176 ms steady state (400+ for the first seconds) | HUD `ping` on the deployed build, sampled once a second |
 
-Corrections scale with loss: at 10 % loss the acknowledgement rate is about one per second of play, and the HUD
-returns to 0 corr/min within two seconds of the chaos stopping. Contact corrections scale with contact, not with
-latency, which is why they are reported separately.
+Contact corrections scale with contact, not with latency, which is why they are reported separately. The chaos
+harness (`?autopilot=250&chaos=10&pin=1`) drops 10 % of inputs and stalls the send path every 5 s, prints
+`RINGOUT_METRICS` when its window closes, and needs a second client to be a two-body comparison.
 
 ## What I rejected, and why
 

@@ -17,4 +17,9 @@ export default __t.row({
   targetId: __t.u64().name("target_id"),
   releaseAtTick: __t.u64().name("release_at_tick"),
   holdStartedTick: __t.u64().name("hold_started_tick"),
+  nextDecisionTick: __t.u64().name("next_decision_tick"),
+  aimX: __t.f32().name("aim_x"),
+  aimZ: __t.f32().name("aim_z"),
+  steerX: __t.f32().name("steer_x"),
+  steerZ: __t.f32().name("steer_z"),
 });

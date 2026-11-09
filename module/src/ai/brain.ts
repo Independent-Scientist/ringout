@@ -8,6 +8,13 @@ import type { Command } from '../../../shared/src/commands';
  * simulation cannot tell a bot from a player. It never touches positions, velocities or
  * cooldowns; it decides where to walk, where to face, and when to hold the shove button.
  *
+ * Fairness: a server-side brain reading the live world every tick has zero latency and wins
+ * every reaction contest against a player on a 170 ms link. So the brain is deliberately
+ * short-sighted: it looks at the world only every `reactionTicks`, and between decisions it
+ * replays the decision it already made. The tick sets that interval from the average
+ * round-trip time the humans in the match reported, which makes a CPU as slow to notice a
+ * dodge as the player whose ping it is imitating.
+ *
  * Determinism: every choice is a pure function of (body state, rivals, tick, memory, seed).
  * No wall clock, no Math.random, so a replay of the same match is identical.
  */
@@ -30,6 +37,12 @@ export type BotMemory = {
   targetId: bigint;
   releaseAtTick: bigint;
   holdStartedTick: bigint;
+  /** Tick the brain may look at the world again; between decisions it replays the last one. */
+  nextDecisionTick: bigint;
+  aimX: number;
+  aimZ: number;
+  steerX: number;
+  steerZ: number;
 };
 
 export type BotPersona = {
@@ -55,7 +68,7 @@ function unit(seed: number, salt: number): number {
 /** Personas spread over a band that is beatable but not passive. */
 export function personaFromSeed(seed: number): BotPersona {
   return {
-    reactionTicks: 3 + Math.floor(unit(seed, 1) * 4), // 3..6 ticks (100-200 ms)
+    reactionTicks: 2 + Math.floor(unit(seed, 1) * 3), // 2..4 ticks (66-133 ms) as a floor
     aimErrorRad: 0.05 + unit(seed, 2) * 0.16, // 3..12 degrees
     chargeTicks: 9 + Math.floor(unit(seed, 3) * 4), // 0.30..0.43 s
     preferredRange: 1.4 + unit(seed, 4) * 0.5, // 1.4..1.9 m
@@ -95,8 +108,9 @@ export type BotDecision = {
 };
 
 /**
- * One tick of thought. Returns the commands to feed the shared executor and the memory
- * to persist for the next tick.
+ * One tick of thought. Returns the commands to feed the shared executor and the memory to
+ * persist for the next tick. On a non-decision tick the previous decision is replayed
+ * verbatim — that hold is the latency handicap.
  */
 export function think(
   self: BotSelf,
@@ -104,13 +118,34 @@ export function think(
   arenaRadius: number,
   tick: bigint,
   memory: BotMemory,
-  persona: BotPersona
+  persona: BotPersona,
+  reactionTicks: number
 ): BotDecision {
+  const holding = memory.releaseAtTick !== 0n && tick < memory.releaseAtTick;
+  const decided = memory.aimX !== 0 || memory.aimZ !== 0;
+
+  // Between decisions the bot is as blind as a player whose input is still in flight.
+  if (decided && tick < memory.nextDecisionTick) {
+    return {
+      commands: [
+        { kind: 'steer', mx: memory.steerX, mz: memory.steerZ },
+        { kind: 'aim', ax: memory.aimX, az: memory.aimZ },
+        { kind: 'charge', hold: holding },
+      ],
+      memory,
+    };
+  }
+
   const commands: Command[] = [];
   const target = nearestAlive(self, rivals, memory.targetId);
   if (!target) {
-    commands.push({ kind: 'steer', mx: 0, mz: 0 }, { kind: 'charge', hold: false });
-    return { commands, memory: { ...memory, releaseAtTick: 0n } };
+    return {
+      commands: [
+        { kind: 'steer', mx: 0, mz: 0 },
+        { kind: 'charge', hold: false },
+      ],
+      memory: { ...memory, releaseAtTick: 0n, nextDecisionTick: tick + 1n },
+    };
   }
 
   const dx = target.px - self.px;
@@ -137,13 +172,14 @@ export function think(
     moveX = cx;
     moveZ = cz;
   }
-  commands.push({ kind: 'steer', mx: moveX, mz: moveZ });
 
   // 2. Aim at the target with a fixed per-bot error, rotated deterministically per tick so
-  //    the error looks like a hand and not a clock.
+  //    the error looks like a hand and not a clock. This aim is then held for reactionTicks,
+  //    so a player who breaks the line actually escapes it.
   const wobble = (unit(Number(tick % 360n), persona.chargeTicks * 7) - 0.5) * persona.aimErrorRad;
   const aimAngle = Math.atan2(dz, dx) + wobble;
-  commands.push({ kind: 'aim', ax: Math.cos(aimAngle), az: Math.sin(aimAngle) });
+  const aimX = Math.cos(aimAngle);
+  const aimZ = Math.sin(aimAngle);
 
   // 3. Shove: hold for a persona-specific time when in range, release to fire.
   let releaseAtTick = memory.releaseAtTick;
@@ -159,18 +195,23 @@ export function think(
     releaseAtTick = 0n;
   }
 
-  const holding = releaseAtTick !== 0n && tick < releaseAtTick;
-  commands.push({ kind: 'charge', hold: holding });
-  if (releaseAtTick !== 0n && tick >= releaseAtTick) {
-    releaseAtTick = 0n;
-  }
+  const stillHolding = releaseAtTick !== 0n && tick < releaseAtTick;
+  commands.push({ kind: 'steer', mx: moveX, mz: moveZ });
+  commands.push({ kind: 'aim', ax: aimX, az: aimZ });
+  commands.push({ kind: 'charge', hold: stillHolding });
 
   return {
     commands,
     memory: {
       targetId: target.id,
-      releaseAtTick,
+      releaseAtTick: releaseAtTick !== 0n && tick >= releaseAtTick ? 0n : releaseAtTick,
       holdStartedTick: canStart ? tick : memory.holdStartedTick,
+      // At least one tick, so the next call is a fresh look rather than a replay.
+      nextDecisionTick: tick + BigInt(Math.max(1, reactionTicks)),
+      aimX,
+      aimZ,
+      steerX: moveX,
+      steerZ: moveZ,
     },
   };
 }

@@ -165,6 +165,7 @@ export function connect(
   let autopilotSpawnAngle = 0;
   let autopilotStartedAt: number | null = null;
   let autopilotPrinted = false;
+  let lastReportedRtt = -1;
   let readyInFlight = false;
   let startInFlight = false;
   let tickerCount = 0;
@@ -997,6 +998,14 @@ export function connect(
     if (tickerCount % 15 === 0) {
       metrics.refresh();
       handlers.onMetricsUpdate();
+      // Report the round trip this client actually measures. The module averages it and
+      // makes the CPU seats react no faster than that, so a player on a 170 ms link is not
+      // fighting opponents with zero lag.
+      const rtt = Math.round(metrics.rttMs);
+      if (rtt > 0 && Math.abs(rtt - lastReportedRtt) >= 20) {
+        lastReportedRtt = rtt;
+        connection.reducers.reportLatency({ ms: Math.min(600, rtt) }).catch(() => {});
+      }
     }
 
     if (!isSubscribed || !myIdentityHex) return;

@@ -2,7 +2,8 @@ import spacetimedb, { matchTick } from '../schema';
 import * as C from '../../../shared/src/constants';
 import { IDLE_INTENT, applyCommands, intentToFrame } from '../../../shared/src/commands';
 import { personaFromSeed, think } from '../ai/brain';
-import { coastBody, radiusAt, resolveCollisions, stepBody } from '../sim/step';
+import { resetMatchToLobby } from '../match/reset';
+import { radiusAt, resolveCollisions, stepBody } from '../sim/step';
 
 function emitEvent(
   ctx: any,
@@ -39,47 +40,6 @@ function pruneOldEvents(ctx: any, matchId: bigint, currentTick: bigint): void {
       ctx.db.event.id.delete(ev.id);
     }
   }
-}
-
-function resetFinishedMatchToLobby(ctx: any, currentMatch: any, scheduledId: bigint): void {
-  for (const b of ctx.db.body.match_id.filter(currentMatch.id)) {
-    const seat = ctx.db.Player.id.find(b.owner);
-    // Bots exist only for the match they were added to: no connection to wait for.
-    if (b.disconnected_at > 0n || seat?.is_bot) {
-      ctx.db.Player.id.delete(b.owner);
-    }
-    ctx.db.bot.owner.delete(b.owner);
-    ctx.db.body.id.delete(b.id);
-  }
-  for (const sc of ctx.db.matchScore.match_id.filter(currentMatch.id)) {
-    ctx.db.matchScore.id.delete(sc.id);
-  }
-  for (const frame of ctx.db.inputFrame.match_id.filter(currentMatch.id)) {
-    ctx.db.inputFrame.id.delete(frame.id);
-  }
-  for (const ev of ctx.db.event.match_id.filter(currentMatch.id)) {
-    ctx.db.event.id.delete(ev.id);
-  }
-  ctx.db.matchTick.scheduled_id.delete(scheduledId);
-
-  for (const p of ctx.db.Player.iter()) {
-    if (p.match_id === currentMatch.id) {
-      ctx.db.Player.id.update({ ...p, ready: false });
-    }
-  }
-
-  ctx.db.match.id.update({
-    ...currentMatch,
-    status: 'lobby',
-    round: 1,
-    score_a: 0,
-    score_b: 0,
-    tick: 0n,
-    countdown_ends: 0n,
-    round_ends: 0n,
-    arena_radius: C.ARENA_R_START,
-    winner: undefined,
-  });
 }
 
 function respawnBodiesForRound(ctx: any, bodies: any[], nextTick: bigint): void {
@@ -172,7 +132,7 @@ export const tick = spacetimedb.reducer(
         ctx.db.inputFrame.id.delete(frame.id);
       }
       if (nextTick >= currentMatch.round_ends) {
-        resetFinishedMatchToLobby(ctx, currentMatch, arg.scheduled_id);
+        resetMatchToLobby(ctx, currentMatch, arg.scheduled_id);
         return;
       }
       ctx.db.match.id.update({ ...currentMatch, tick: nextTick });
@@ -189,6 +149,17 @@ export const tick = spacetimedb.reducer(
       botSeats.set(botRow.owner.toHexString(), botRow);
     }
     const isBotSeat = (owner: any) => botSeats.has(owner.toHexString());
+
+    // CPU seats are handicapped by the average round trip the humans in this match reported:
+    // the brain looks at the world once per that interval and holds its decision in between.
+    const reportedLatencies = [...ctx.db.Player.iter()].filter(
+      (p) => p.match_id === currentMatch.id && !p.is_bot && p.latency_ms > 0
+    );
+    const meanLatencyMs =
+      reportedLatencies.length > 0
+        ? reportedLatencies.reduce((sum, p) => sum + p.latency_ms, 0) / reportedLatencies.length
+        : 0;
+    const latencyTicks = Math.round((meanLatencyMs / 1000) * C.TICK_HZ);
 
     const bodies = allBodies.filter((b) => {
       if (b.disconnected_at > 0n && now - b.disconnected_at >= C.DISCONNECT_GRACE_US) {
@@ -209,7 +180,7 @@ export const tick = spacetimedb.reducer(
     // that body there is no one left to play for.
     if (!bodies.some((b) => !isBotSeat(b.owner))) {
       console.info(`match ${currentMatch.id} has no human left, returning to lobby`);
-      resetFinishedMatchToLobby(ctx, currentMatch, arg.scheduled_id);
+      resetMatchToLobby(ctx, currentMatch, arg.scheduled_id);
       return;
     }
 
@@ -220,7 +191,7 @@ export const tick = spacetimedb.reducer(
           ctx.db.Player.id.delete(b.owner);
           ctx.db.body.id.delete(b.id);
         }
-        resetFinishedMatchToLobby(ctx, currentMatch, arg.scheduled_id);
+        resetMatchToLobby(ctx, currentMatch, arg.scheduled_id);
         return;
       }
 
@@ -235,7 +206,7 @@ export const tick = spacetimedb.reducer(
           round_ends: nextTick + BigInt(C.MATCH_END_S * C.TICK_HZ),
         });
       } else {
-        resetFinishedMatchToLobby(ctx, currentMatch, arg.scheduled_id);
+        resetMatchToLobby(ctx, currentMatch, arg.scheduled_id);
       }
       return;
     }
@@ -261,6 +232,7 @@ export const tick = spacetimedb.reducer(
       // queue below, so the physics cannot tell the two apart.
       const botRow = botSeats.get(b.owner.toHexString());
       if (botRow && b.alive && !isFrozen) {
+        const persona = personaFromSeed(botRow.seed);
         const decision = think(
           { px: b.px, pz: b.pz, charge: b.charge, cooldown_until: b.cooldown_until },
           bodies
@@ -272,8 +244,14 @@ export const tick = spacetimedb.reducer(
             targetId: botRow.target_id,
             releaseAtTick: botRow.release_at_tick,
             holdStartedTick: botRow.hold_started_tick,
+            nextDecisionTick: botRow.next_decision_tick,
+            aimX: botRow.aim_x,
+            aimZ: botRow.aim_z,
+            steerX: botRow.steer_x,
+            steerZ: botRow.steer_z,
           },
-          personaFromSeed(botRow.seed)
+          persona,
+          Math.max(persona.reactionTicks, latencyTicks)
         );
         const frame = intentToFrame(applyCommands(IDLE_INTENT, decision.commands));
         pendingInputs.push({
@@ -293,17 +271,15 @@ export const tick = spacetimedb.reducer(
           target_id: decision.memory.targetId,
           release_at_tick: decision.memory.releaseAtTick,
           hold_started_tick: decision.memory.holdStartedTick,
+          next_decision_tick: decision.memory.nextDecisionTick,
+          aim_x: decision.memory.aimX,
+          aim_z: decision.memory.aimZ,
+          steer_x: decision.memory.steerX,
+          steer_z: decision.memory.steerZ,
         });
       }
 
       if (pendingInputs.length === 0) {
-        // No input this tick: momentum still has to decay, so coast instead of freezing.
-        if (b.alive && !isFrozen) {
-          return {
-            ...coastBody(b, C.DT, nextArenaRadius, nextTick),
-            last_seq: b.last_seq,
-          };
-        }
         return { ...b };
       }
 

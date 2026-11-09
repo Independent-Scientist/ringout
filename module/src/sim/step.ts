@@ -39,14 +39,16 @@ type Motion = {
   vz: number;
   kx: number;
   kz: number;
+  aimX: number;
+  aimZ: number;
   charge: number;
   cooldownUntil: bigint;
 };
 
 /**
  * Integrate velocity channels, apply the speed cap and the ring-out test.
- * Shared by stepBody (an input arrived) and coastBody (none did), so momentum
- * decays identically whether or not the player is still holding a stick.
+ * Called exactly once per input frame, because the client predicts exactly one step per
+ * frame it sends: any extra step here is an acknowledgement correction.
  */
 function advance<T extends BodyState>(
   b: T,
@@ -86,6 +88,8 @@ function advance<T extends BodyState>(
     vz: m.vz,
     kx,
     kz,
+    aim_x: m.aimX,
+    aim_z: m.aimZ,
     charge: m.charge,
     alive: !isEliminated,
     cooldown_until: m.cooldownUntil,
@@ -171,36 +175,7 @@ export function stepBody<T extends BodyState>(
 
   return advance(
     b,
-    { vx, vz, kx, kz, charge: i.dash ? charge : 0, cooldownUntil },
-    dt,
-    arenaR,
-    tick
-  );
-}
-
-/**
- * Advance a body that sent no input this tick: friction on both channels, nothing else.
- * Without this a body with an empty input queue never integrates and a shove would hang
- * on it until the player came back.
- */
-export function coastBody<T extends BodyState>(
-  b: T,
-  dt: number,
-  arenaR: number,
-  tick: bigint
-): T {
-  if (!b.alive) return b;
-  const friction = Math.exp(-C.GROUND_FRICTION * dt);
-  return advance(
-    b,
-    {
-      vx: b.vx * friction,
-      vz: b.vz * friction,
-      kx: b.kx,
-      kz: b.kz,
-      charge: b.charge,
-      cooldownUntil: b.cooldown_until,
-    },
+    { vx, vz, kx, kz, aimX, aimZ, charge: i.dash ? charge : 0, cooldownUntil },
     dt,
     arenaR,
     tick

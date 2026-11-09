@@ -48,7 +48,9 @@ stays. Best of three rounds, ninety seconds per round.
 - **CPU opponents on the player's own input path.** A bot is a server-side seat with a synthetic identity. Its
   brain emits `Command`s — the same `steer` / `aim` / `charge` vocabulary a keyboard produces — which run through
   the same executor into the same input frame and the same `stepBody`. It cannot move in a way a player could
-  not, and adding it needed no branch in the physics.
+  not, and adding it needed no branch in the physics. It is also not superhuman: the client reports the round
+  trip it measures, and a CPU looks at the world only once per that interval, so on a 170 ms link it is as slow
+  to notice your dodge as you are to see its shove.
 - **A latency simulator you can toggle.** 0 / 100 / 250 ms one-way, wired through both directions, with the
   resulting correction rate on screen. The hard part is observable on purpose.
 - **One integrator, two runners.** The browser imports the module's simulation file through a Vite alias, so

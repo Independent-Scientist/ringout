@@ -96,4 +96,20 @@ assert.ok(away.slideAt1s > into.slideAt1s, 'running with the shove must carry fu
 // The stick may lean against a shove but never reverse it: control authority is capped.
 assert.ok(into.slideAt1s > 0, 'a shove into a resisting victim must still move them forwards');
 
+// Aim is written by every step, not only by the frozen branch: a body stepped during play must
+// point where its input says, or the robots freeze facing their spawn direction.
+{
+  const body = makeBody(0, 0, 0, -1);
+  const afterPlusX = stepBody(body, { mx: 0, mz: 0, ax: 1, az: 0, dash: false }, C.DT, C.ARENA_R_START, 1n);
+  assert.ok(
+    Math.abs(afterPlusX.aim_x - 1) < 1e-6 && Math.abs(afterPlusX.aim_z) < 1e-6,
+    `aim must follow a +X aim input, got (${afterPlusX.aim_x}, ${afterPlusX.aim_z})`
+  );
+  const idleAim = stepBody(afterPlusX, { mx: 0, mz: 0, ax: 0, az: 0, dash: false }, C.DT, C.ARENA_R_START, 2n);
+  assert.ok(
+    Math.abs(idleAim.aim_x - 1) < 1e-6,
+    'a neutral aim must hold the previous facing, not reset it'
+  );
+}
+
 console.log('Momentum test passed.');

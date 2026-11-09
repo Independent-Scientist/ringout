@@ -40,6 +40,7 @@ import JoinLobbyReducer from "./join_lobby_reducer";
 import JoinMatchReducer from "./join_match_reducer";
 import RematchReducer from "./rematch_reducer";
 import RemoveBotReducer from "./remove_bot_reducer";
+import ReportLatencyReducer from "./report_latency_reducer";
 import SetNameReducer from "./set_name_reducer";
 import SetReadyReducer from "./set_ready_reducer";
 import StartMatchReducer from "./start_match_reducer";
@@ -189,6 +190,7 @@ const reducersSchema = __reducers(
   __reducerSchema("join_match", JoinMatchReducer),
   __reducerSchema("rematch", RematchReducer),
   __reducerSchema("remove_bot", RemoveBotReducer),
+  __reducerSchema("report_latency", ReportLatencyReducer),
   __reducerSchema("set_name", SetNameReducer),
   __reducerSchema("set_ready", SetReadyReducer),
   __reducerSchema("start_match", StartMatchReducer),

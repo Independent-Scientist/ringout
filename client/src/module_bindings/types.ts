@@ -41,6 +41,11 @@ export const Bot = __t.object("Bot", {
   targetId: __t.u64(),
   releaseAtTick: __t.u64(),
   holdStartedTick: __t.u64(),
+  nextDecisionTick: __t.u64(),
+  aimX: __t.f32(),
+  aimZ: __t.f32(),
+  steerX: __t.f32(),
+  steerZ: __t.f32(),
 });
 export type Bot = __Infer<typeof Bot>;
 
@@ -123,6 +128,7 @@ export const Player = __t.object("Player", {
   connectedAt: __t.u64(),
   violations: __t.u32(),
   isBot: __t.bool(),
+  latencyMs: __t.u16(),
 });
 export type Player = __Infer<typeof Player>;
 

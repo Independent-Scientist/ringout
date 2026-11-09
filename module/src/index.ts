@@ -1,6 +1,7 @@
 import { Identity, ScheduleAt } from 'spacetimedb';
 import { SenderError, t } from 'spacetimedb/server';
 import spacetimedb, { PLAYER_COLORS } from './schema';
+import { resetMatchToLobby } from './match/reset';
 import * as C from '../../shared/src/constants';
 
 export default spacetimedb;
@@ -245,6 +246,7 @@ export const join_lobby = spacetimedb.reducer({ name: t.string() }, (ctx, { name
     connected_at: ctx.timestamp.microsSinceUnixEpoch,
     violations: 0,
     is_bot: false,
+    latency_ms: 0,
   });
 });
 
@@ -384,6 +386,7 @@ export const add_bot = spacetimedb.reducer((ctx) => {
     connected_at: ctx.timestamp.microsSinceUnixEpoch + BigInt(seatNumber),
     violations: 0,
     is_bot: true,
+    latency_ms: 0,
   });
 
   ctx.db.bot.insert({
@@ -393,6 +396,11 @@ export const add_bot = spacetimedb.reducer((ctx) => {
     target_id: 0n,
     release_at_tick: 0n,
     hold_started_tick: 0n,
+    next_decision_tick: 0n,
+    aim_x: 0,
+    aim_z: 0,
+    steer_x: 0,
+    steer_z: 0,
   });
 });
 
@@ -542,43 +550,22 @@ export const rematch = spacetimedb.reducer((ctx) => {
     throw new SenderError('rematch is only available after the match finishes');
   }
 
-  for (const b of ctx.db.body.match_id.filter(currentMatch.id)) {
-    if (b.disconnected_at > 0n) {
-      ctx.db.Player.id.delete(b.owner);
-    }
-    ctx.db.body.id.delete(b.id);
-  }
-  for (const sc of ctx.db.matchScore.match_id.filter(currentMatch.id)) {
-    ctx.db.matchScore.id.delete(sc.id);
-  }
-  for (const frame of ctx.db.inputFrame.match_id.filter(currentMatch.id)) {
-    ctx.db.inputFrame.id.delete(frame.id);
-  }
-  for (const ev of ctx.db.event.match_id.filter(currentMatch.id)) {
-    ctx.db.event.id.delete(ev.id);
-  }
-  for (const sched of ctx.db.matchTick.match_id.filter(currentMatch.id)) {
-    ctx.db.matchTick.scheduled_id.delete(sched.scheduled_id);
-  }
+  // Same teardown every other terminal path runs: bodies and scores go, humans unready,
+  // CPU seats stay seated with a blank brain. A second cleanup implementation is how
+  // "rematch sometimes leaves the lobby stuck" happens.
+  resetMatchToLobby(ctx, currentMatch);
+});
 
-  for (const p of ctx.db.Player.iter()) {
-    if (p.match_id === currentMatch.id) {
-      ctx.db.Player.id.update({ ...p, ready: false });
-    }
-  }
-
-  ctx.db.match.id.update({
-    ...currentMatch,
-    status: 'lobby',
-    round: 1,
-    score_a: 0,
-    score_b: 0,
-    tick: 0n,
-    countdown_ends: 0n,
-    round_ends: 0n,
-    arena_radius: C.ARENA_R_START,
-    winner: undefined,
-  });
+/**
+ * The client reports the round trip it measures, and the module uses the average to handicap
+ * the CPU seats. Self-reported and non-competitive by design: a real server would measure it.
+ */
+export const report_latency = spacetimedb.reducer({ ms: t.u16() }, (ctx, { ms }) => {
+  const player = ctx.db.Player.id.find(ctx.sender);
+  if (!player || player.is_bot) return;
+  const clamped = Math.max(0, Math.min(600, ms));
+  if (player.latency_ms === clamped) return;
+  ctx.db.Player.id.update({ ...player, latency_ms: clamped });
 });
 
 /**

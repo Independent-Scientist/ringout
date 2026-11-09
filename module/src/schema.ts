@@ -16,6 +16,8 @@ export const Player = table(
     violations: t.u32(),
     /** True for a server-side CPU seat. Bots ready themselves and never disconnect. */
     is_bot: t.bool(),
+    /** Last round-trip time the client measured and reported, in ms. Bots are handicapped by it. */
+    latency_ms: t.u16(),
   }
 );
 
@@ -125,6 +127,13 @@ export const bot = table(
     target_id: t.u64(),
     release_at_tick: t.u64(),
     hold_started_tick: t.u64(),
+    /** Tick at which the brain may look at the world again. Between decisions it replays the
+     *  last one, which is how a human's round-trip lag is modelled. */
+    next_decision_tick: t.u64(),
+    aim_x: t.f32(),
+    aim_z: t.f32(),
+    steer_x: t.f32(),
+    steer_z: t.f32(),
   }
 );
 

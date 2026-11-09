@@ -16,6 +16,7 @@ const SERVER_URI = process.env.VITE_ST_URI ?? 'ws://127.0.0.1:3000';
 const DATABASE = process.env.VITE_ST_DB ?? 'ringout-dev';
 const RUN_SECONDS = Number(process.env.RUN_SECONDS ?? 95);
 const BOTS = Number(process.env.BOTS ?? 3);
+const LATENCY_MS = Number(process.env.LATENCY_MS ?? 0);
 
 const connection = DbConnection.builder()
   .withUri(SERVER_URI)
@@ -45,6 +46,11 @@ const applied = new Promise<void>((resolve) => {
 await applied;
 myHex = connection.identity.toHexString();
 await connection.reducers.joinLobby({ name: 'harness' });
+if (LATENCY_MS > 0) {
+  // Stand in for a player on a real link: the module handicaps the CPU seats by this.
+  await connection.reducers.reportLatency({ ms: LATENCY_MS });
+  console.log(`reported latency: ${LATENCY_MS} ms`);
+}
 await connection.reducers.createMatch({});
 
 const me = [...connection.db.player.iter()].find((p) => p.id.toHexString() === myHex);
@@ -85,6 +91,7 @@ let lastLog = 0;
 let maxTick = 0n;
 
 const bodiesSeen = new Map<string, { name: string; moved: number; maxSpeed: number }>();
+const aimTrack = new Map<string, { x: number; z: number; changes: number }>();
 
 await new Promise<void>((resolve) => {
   const poll = () => {
@@ -106,6 +113,14 @@ await new Promise<void>((resolve) => {
         maxSpeed: Math.max(prev.maxSpeed, speed),
       });
       maxTick = b.serverTick > maxTick ? b.serverTick : maxTick;
+      const aimPrev = aimTrack.get(b.name);
+      if (!aimPrev) {
+        aimTrack.set(b.name, { x: b.aimX, z: b.aimZ, changes: 0 });
+      } else if (Math.hypot(b.aimX - aimPrev.x, b.aimZ - aimPrev.z) > 1e-4) {
+        aimPrev.x = b.aimX;
+        aimPrev.z = b.aimZ;
+        aimPrev.changes += 1;
+      }
     }
     const now = Date.now();
     if (now - lastLog > 5000) {
@@ -131,8 +146,16 @@ console.log(
   `shove releases: ${shoveEvents.length}, contact hits: ${hitEvents.length}, eliminations: ${elimEvents.length}, round ends: ${roundEnds.length}`
 );
 console.log('bodies:');
+const failures: string[] = [];
+const seconds = (Date.now() - started) / 1000;
 for (const [, body] of bodiesSeen) {
-  console.log(`  ${body.name.padEnd(10)} top speed ${body.maxSpeed.toFixed(2)} u/s`);
+  const aim = aimTrack.get(body.name);
+  console.log(
+    `  ${body.name.padEnd(10)} top speed ${body.maxSpeed.toFixed(2)} u/s | aim changes ${aim?.changes ?? 0} (${((aim?.changes ?? 0) / seconds).toFixed(1)}/s)`
+  );
+  if (!body.name.startsWith('harness') && (aim?.changes ?? 0) === 0) {
+    failures.push(`${body.name} never turned: aim is frozen`);
+  }
 }
 console.log('bot rows:');
 for (const b of connection.db.bot.iter()) {
@@ -141,7 +164,6 @@ for (const b of connection.db.bot.iter()) {
   );
 }
 
-const failures: string[] = [];
 if (shoveEvents.length === 0) failures.push('no shove events — the bots never released');
 if (elimEvents.length === 0) failures.push('no eliminations — nobody ever got pushed out');
 if ((m?.tick ?? 0n) < BigInt(RUN_SECONDS * 20)) failures.push('the tick barely advanced');

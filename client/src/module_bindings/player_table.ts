@@ -19,4 +19,5 @@ export default __t.row({
   connectedAt: __t.u64().name("connected_at"),
   violations: __t.u32(),
   isBot: __t.bool().name("is_bot"),
+  latencyMs: __t.u16().name("latency_ms"),
 });

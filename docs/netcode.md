@@ -37,8 +37,10 @@ position += (v + k) * dt
 
 Anything the world does to a body lands on `k`, so the stick cannot delete it: while `|k| > 2 u/s` the player is
 staggered and steers at 35 % authority (`STAGGER_CONTROL`), which is enough to lean against a shove and not
-enough to cancel one. A body with an empty input queue coasts rather than freezing, so momentum decays even when
-packets stop arriving.
+enough to cancel one. Friction is applied per stepped input and never on a tick the server invents for itself: an
+integration the client did not predict becomes an acknowledgement correction, so coasting a body through a
+missing packet trades a 33 ms hang for permanent prediction noise (measured: 0 ack corrections without it, 39 in
+40 s with it, same build, same link).
 
 This replaced a single-channel model where every impulse was written into `v` and the servo — 33 % of the gap
 per tick at 30 Hz — erased it inside 100 ms. A victim walking into a shove ended up 0.60 m *behind* their start
@@ -55,8 +57,15 @@ the tick and a seed, and its only output is a list of `Command`s:
 { kind: 'steer', mx, mz } | { kind: 'aim', ax, az } | { kind: 'charge', hold }
 ```
 
-The tick feeds those through the same `createCommandExecutor()` a keyboard uses, producing one `InputFrame`,
-which joins the same queue and the same `stepBody` call as a human's. There is no bot branch in the physics, no
+A bot on a server that reads the live world every tick has zero latency, which is not a fair fight against a
+player on a 170 ms link. So the client reports the round trip it measures (`report_latency`, refreshed only when
+the number moves by 20 ms), the module averages it over the humans in the match, and the brain is only allowed to
+*look* once per that interval: between decisions it replays the commands it already issued, aim included, so a
+dodge that breaks the line of a stale aim actually works. Measured on the same build: 8.1 aim changes per second
+at 0 ms reported, 5.1 at 170 ms.
+
+The tick feeds those commands through the same `createCommandExecutor()` a keyboard uses, producing one
+`InputFrame`, which joins the same queue and the same `stepBody` call as a human's. There is no bot branch in the physics, no
 bot-only velocity, and no way for a bot to teleport: if the command vocabulary cannot express it, the server
 cannot do it. The lobby reducer refuses a fifth seat, and a match whose last human leaves returns itself to the
 lobby instead of playing to an audience of CPUs.

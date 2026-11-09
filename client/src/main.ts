@@ -271,6 +271,7 @@ window.addEventListener('keydown', (event) => {
 });
 
 (window as any).__ringoutBoost = () => activeConn.getSelfBoost();
+(window as any).__ringoutPickupCount = () => pickupRenderer.count();
 (window as any).__ringoutPickups = () =>
   [...activeConn.connection.db.pickup.iter()].map((p) => ({ kind: p.kind, px: p.px, pz: p.pz }));
 (window as any).__ringoutSelf = () => {

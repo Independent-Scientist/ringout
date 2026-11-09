@@ -54,17 +54,22 @@ ring at `0.45 x` the current arena radius, every nine seconds from the moment th
 kind order (`POWER -> HASTE -> HEAVY`); the angle is a hash of the match id and the spawn index, which keeps the
 layout deterministic and replayable.
 
+The client draws each kind as a voxel object built from an integer cell list and merged into one geometry —
+an amber fist, a red bolt, a blue crystal cluster — floating over a flat halo. The camera looks down at about
+55 degrees, so the floor marker and the silhouette do the work; a vertical beam was tried and is invisible from
+this angle.
+
 Nothing about a pickup is client-side. The tick spawns it, arms it after 1.2 s (visible, not collectable), expires
 it after 11 s, and applies the boost to the collecting body as `boost_kind` / `boost_until` — two fields the shared
 integrator reads, so prediction applies exactly the same multiplier the server did and no correction is produced
 at pickup. The spawn schedule is derived from the round clock rather than stored, so there is no extra row to keep
 in sync across the lobby reset, the rematch path and the empty-match teardown.
 
-| Kind | Effect | Duration |
+| Kind | Look | Effect | Duration |
 | --- | --- | --- |
-| POWER | shove impulse x1.7 (the speed cap clips it to ~1.34x at the body that takes the hit) | 8 s |
-| HASTE | top speed x1.35 | 8 s |
-| HEAVY | top speed x0.72, shove x0.65 — the trap you learn to leave alone | 7 s |
+| POWER | amber voxel fist | shove impulse x1.7 (the speed cap clips it to ~1.34x at the body that takes the hit) | 8 s |
+| HASTE | red voxel bolt | top speed x1.35 | 8 s |
+| HEAVY | top speed x0.60, shove x0.50 — the trap you learn to leave alone | 5 s |
 
 The CPU brain treats a nearby pickup as worth breaking off for (`pickupDistance < distance + 3.5`), because a
 server-side opponent that ignored the floor would hand every boost to the human.

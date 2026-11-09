@@ -240,6 +240,16 @@ export const tick = spacetimedb.reducer(
       for (const old of ctx.db.pickup.match_id.filter(currentMatch.id)) {
         if (nextTick >= old.expires_tick) {
           ctx.db.pickup.id.delete(old.id);
+          continue;
+        }
+        // The arena shrinks under a pickup placed earlier in the round. Drag it in along its
+        // own angle: a boost outside the disc cannot be contested and can only be reached by
+        // walking out of the round.
+        const distanceFromCentre = Math.hypot(old.px, old.pz);
+        const maxRadius = C.PICKUP_RING_FACTOR * nextArenaRadius;
+        if (distanceFromCentre > maxRadius) {
+          const pull = maxRadius / distanceFromCentre;
+          ctx.db.pickup.id.update({ ...old, px: old.px * pull, pz: old.pz * pull });
         }
       }
       const livePickups = [...ctx.db.pickup.match_id.filter(currentMatch.id)];

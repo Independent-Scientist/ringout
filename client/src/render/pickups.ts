@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { PICKUP_ARM_S } from '../../../shared/src/constants';
+import { buildBoostGeometry } from './voxel-boosts';
 
 /**
- * Pickups on the floor: a glowing core, a ring and a beam tall enough to see from across the
- * arena. The beam is the point — a contested resource is only a race if both players can see
- * it coming, so nothing here is subtle or occluded.
+ * Pickups on the floor: a voxel object you can name from across the arena (a fist, a bolt,
+ * a crystal cluster), floating over a flat halo. The camera looks down, so the readable cue
+ * is the floor marker plus the silhouette, never a vertical beam.
  */
 
 export type PickupRow = {
@@ -15,9 +16,9 @@ export type PickupRow = {
 };
 
 const COLORS: Record<number, number> = {
-  1: 0xffb020, // POWER — amber
-  2: 0x35e6c4, // HASTE — teal
-  3: 0xff3b5c, // HEAVY — red
+  1: 0xffb020, // POWER — amber fist
+  2: 0xff3b3b, // HASTE — red bolt
+  3: 0x4aa8ff, // HEAVY — blue crystals
 };
 
 const NAMES: Record<number, string> = { 1: 'POWER', 2: 'HASTE', 3: 'SLOWED' };
@@ -36,15 +37,12 @@ export function boostColorCss(kind: number): string {
 
 type PickupVisual = {
   group: THREE.Group;
-  core: THREE.Mesh;
-  coreMaterial: THREE.MeshStandardMaterial;
-  ring: THREE.Mesh;
-  ringMaterial: THREE.MeshBasicMaterial;
-  /** Flat marker on the floor: the camera looks down, so a vertical beam is invisible. */
+  mesh: THREE.Mesh;
   halo: THREE.Mesh;
   haloMaterial: THREE.MeshBasicMaterial;
   kind: number;
   appearedAt: number;
+  spin: number;
 };
 
 type Burst = {
@@ -56,6 +54,7 @@ type Burst = {
 };
 
 export type PickupRenderer = {
+  count: () => number;
   sync: (rows: PickupRow[], nowMs: number) => void;
   update: (dt: number, nowMs: number) => void;
   burst: (x: number, z: number, kind: number) => void;
@@ -65,39 +64,44 @@ export type PickupRenderer = {
 export function createPickupRenderer(scene: THREE.Scene): PickupRenderer {
   const visuals = new Map<string, PickupVisual>();
   const bursts: Burst[] = [];
+  const shared = new Map<number, { geometry: THREE.BufferGeometry; material: THREE.MeshStandardMaterial }>();
 
-  // One shared geometry set; the material is per pickup because the colour is per kind.
-  const coreGeometry = new THREE.OctahedronGeometry(0.3, 0);
-  const ringGeometry = new THREE.TorusGeometry(0.46, 0.035, 8, 28);
   const haloGeometry = new THREE.RingGeometry(0.62, 0.82, 36);
   const burstGeometry = new THREE.RingGeometry(0.2, 0.3, 24);
 
+  /** Geometry and material are shared per kind: two pickups of one kind are one upload. */
+  function assetsFor(kind: number) {
+    let assets = shared.get(kind);
+    if (!assets) {
+      const color = pickupColor(kind);
+      assets = {
+        geometry: buildBoostGeometry(kind, color),
+        material: new THREE.MeshStandardMaterial({
+          vertexColors: true,
+          emissive: new THREE.Color(color).multiplyScalar(0.3),
+          metalness: 0.15,
+          roughness: 0.4,
+          emissiveIntensity: 1.0,
+        }),
+      };
+      shared.set(kind, assets);
+    }
+    return assets;
+  }
+
   function createVisual(kind: number, nowMs: number): PickupVisual {
-    const color = pickupColor(kind);
     const group = new THREE.Group();
+    const assets = assetsFor(kind);
 
-    const coreMaterial = new THREE.MeshStandardMaterial({
-      color,
-      emissive: color,
-      emissiveIntensity: 1.6,
-      metalness: 0.3,
-      roughness: 0.25,
-    });
-    const core = new THREE.Mesh(coreGeometry, coreMaterial);
-    core.position.y = 0.6;
-
-    const ringMaterial = new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0.85,
-      side: THREE.DoubleSide,
-    });
-    const ring = new THREE.Mesh(ringGeometry, ringMaterial);
-    ring.rotation.x = Math.PI / 2;
-    ring.position.y = 0.6;
+    // Tilt the object toward the camera: from a 55-degree overhead view an upright voxel shape
+    // is mostly silhouette-ed away, and the point is to name it without reading a caption.
+    const tilt = new THREE.Group();
+    tilt.rotation.x = -0.3;
+    const mesh = new THREE.Mesh(assets.geometry, assets.material);
+    tilt.add(mesh);
 
     const haloMaterial = new THREE.MeshBasicMaterial({
-      color,
+      color: pickupColor(kind),
       transparent: true,
       opacity: 0.35,
       depthWrite: false,
@@ -108,12 +112,37 @@ export function createPickupRenderer(scene: THREE.Scene): PickupRenderer {
     halo.rotation.x = -Math.PI / 2;
     halo.position.y = 0.03;
 
-    group.add(core, ring, halo);
+    group.add(tilt, halo);
     scene.add(group);
-    return { group, core, coreMaterial, ring, ringMaterial, halo, haloMaterial, kind, appearedAt: nowMs };
+    return {
+      group,
+      mesh,
+      halo,
+      haloMaterial,
+      kind,
+      appearedAt: nowMs,
+      spin: kind === 2 ? 0.6 : 0.9,
+    };
+  }
+
+  function ringBurst(x: number, z: number, kind: number): void {
+    const material = new THREE.MeshBasicMaterial({
+      color: pickupColor(kind),
+      transparent: true,
+      opacity: 0.9,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(burstGeometry, material);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(x, 0.08, z);
+    scene.add(mesh);
+    bursts.push({ mesh, material, elapsed: 0, duration: 0.45, maxScale: 3.2 });
   }
 
   return {
+    count: () => visuals.size,
+
     sync(rows, nowMs) {
       const seen = new Set<string>();
       for (const row of rows) {
@@ -123,20 +152,19 @@ export function createPickupRenderer(scene: THREE.Scene): PickupRenderer {
         if (!visual || visual.kind !== row.kind) {
           if (visual) {
             scene.remove(visual.group);
-            visual.coreMaterial.dispose();
-            visual.ringMaterial.dispose();
             visual.haloMaterial.dispose();
           }
           visual = createVisual(row.kind, nowMs);
           visuals.set(key, visual);
+          // A spawn ring, so a boost landing across the arena still catches the eye.
+          ringBurst(row.px, row.pz, row.kind);
         }
-        visual.group.position.set(row.px, 0, row.pz);
+        visual.group.position.x = row.px;
+        visual.group.position.z = row.pz;
       }
       for (const [key, visual] of visuals) {
         if (seen.has(key)) continue;
         scene.remove(visual.group);
-        visual.coreMaterial.dispose();
-        visual.ringMaterial.dispose();
         visual.haloMaterial.dispose();
         visuals.delete(key);
       }
@@ -147,21 +175,14 @@ export function createPickupRenderer(scene: THREE.Scene): PickupRenderer {
       for (const visual of visuals.values()) {
         const age = (now - visual.appearedAt) / 1000;
         const armed = age >= PICKUP_ARM_S;
-        visual.core.rotation.y += dt * 1.8;
-        visual.core.rotation.x += dt * 0.6;
-        visual.ring.rotation.z += dt * 1.2;
-        const bob = Math.sin(now / 320 + visual.group.position.x) * 0.08;
-        visual.core.position.y = 0.6 + bob;
-        visual.ring.position.y = 0.6 + bob;
-        // Unarmed pickups read as "still charging": small, dim, no beam.
-        const targetScale = armed ? 1 : 0.55;
+        visual.mesh.rotation.y += dt * visual.spin;
+        visual.group.position.y = 1.0 + Math.sin(now / 320 + visual.group.position.x) * 0.12;
+        // Unarmed pickups read as "still charging": a little smaller and dimmer until the
+        // arming tick, but never invisible — you have to be able to plan the race.
+        const targetScale = armed ? 1 : 0.85;
         visual.group.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.15);
-        const pulse = armed ? 0.4 + Math.sin(now / 240) * 0.18 : 0.12;
-        visual.haloMaterial.opacity = pulse;
-        const haloScale = 1 + (armed ? Math.sin(now / 300) * 0.06 : 0);
-        visual.halo.scale.setScalar(haloScale);
-        visual.coreMaterial.emissiveIntensity = armed ? 1.6 : 0.7;
-        visual.ringMaterial.opacity = armed ? 0.85 : 0.3;
+        visual.haloMaterial.opacity = armed ? 0.4 + Math.sin(now / 240) * 0.18 : 0.26;
+        visual.halo.scale.setScalar(1 + (armed ? Math.sin(now / 300) * 0.06 : 0));
       }
 
       for (let i = bursts.length - 1; i >= 0; i--) {
@@ -174,32 +195,16 @@ export function createPickupRenderer(scene: THREE.Scene): PickupRenderer {
           bursts.splice(i, 1);
           continue;
         }
-        const scale = 1 + t * burst.maxScale;
-        burst.mesh.scale.setScalar(scale);
+        burst.mesh.scale.setScalar(1 + t * burst.maxScale);
         burst.material.opacity = 0.9 * (1 - t);
       }
     },
 
-    burst(x, z, kind) {
-      const material = new THREE.MeshBasicMaterial({
-        color: pickupColor(kind),
-        transparent: true,
-        opacity: 0.9,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      });
-      const mesh = new THREE.Mesh(burstGeometry, material);
-      mesh.rotation.x = -Math.PI / 2;
-      mesh.position.set(x, 0.08, z);
-      scene.add(mesh);
-      bursts.push({ mesh, material, elapsed: 0, duration: 0.45, maxScale: 3.2 });
-    },
+    burst: ringBurst,
 
     dispose() {
       for (const visual of visuals.values()) {
         scene.remove(visual.group);
-        visual.coreMaterial.dispose();
-        visual.ringMaterial.dispose();
         visual.haloMaterial.dispose();
       }
       visuals.clear();
@@ -208,8 +213,11 @@ export function createPickupRenderer(scene: THREE.Scene): PickupRenderer {
         burst.material.dispose();
       }
       bursts.length = 0;
-      coreGeometry.dispose();
-      ringGeometry.dispose();
+      for (const assets of shared.values()) {
+        assets.geometry.dispose();
+        assets.material.dispose();
+      }
+      shared.clear();
       haloGeometry.dispose();
       burstGeometry.dispose();
     },

@@ -51,12 +51,12 @@ export const BOOST_HEAVY = 3; // power-down: slower and weaker
 
 export const BOOST_POWER_S = 8;
 export const BOOST_HASTE_S = 8;
-export const BOOST_HEAVY_S = 7;
+export const BOOST_HEAVY_S = 5;
 
 export const BOOST_POWER_SHOVE_MULT = 1.7;
 export const BOOST_HASTE_SPEED_MULT = 1.35;
-export const BOOST_HEAVY_SPEED_MULT = 0.72;
-export const BOOST_HEAVY_SHOVE_MULT = 0.65;
+export const BOOST_HEAVY_SPEED_MULT = 0.6;
+export const BOOST_HEAVY_SHOVE_MULT = 0.5;
 
 // Arena boundaries and shrinking
 export const ARENA_R_START = 14;

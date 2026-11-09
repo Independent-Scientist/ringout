@@ -15,6 +15,8 @@ export type RemoteRowData = {
   /** Knockback velocity; extrapolation needs total velocity, not just the stick's share. */
   kx?: number;
   kz?: number;
+  boostKind?: number;
+  boostUntil?: bigint;
   aimX: number;
   aimZ: number;
   charge: number;
@@ -42,6 +44,9 @@ type RemoteTrack = {
   aimZ: number;
   charge: number;
   alive: boolean;
+  /** Local clock ms at which the body's boost lapses; 0 when it has none. */
+  boostEndsAtMs: number;
+  boostKind: number;
 };
 
 export type RemoteInterpolator = {
@@ -63,6 +68,12 @@ export function createRemoteInterpolator(): RemoteInterpolator {
     pushSnapshot(row: RemoteRowData, nowMs = performance.now()) {
       const velX = row.vx + (row.kx ?? 0);
       const velZ = row.vz + (row.kz ?? 0);
+      const boostLeftTicks =
+        row.boostUntil !== undefined && row.serverTick !== undefined && row.boostUntil > row.serverTick
+          ? Number(row.boostUntil - row.serverTick)
+          : 0;
+      const boostEndsAtMs = nowMs + boostLeftTicks * (1000 / 30);
+      const boostKind = boostLeftTicks > 0 ? (row.boostKind ?? 0) : 0;
       const key = row.id.toString();
       let track = tracks.get(key);
       if (!track) {
@@ -86,10 +97,15 @@ export function createRemoteInterpolator(): RemoteInterpolator {
           aimZ: row.aimZ,
           charge: row.charge,
           alive: row.alive,
+          boostEndsAtMs,
+          boostKind,
         };
         tracks.set(key, track);
         return;
       }
+
+      track.boostEndsAtMs = boostEndsAtMs;
+      track.boostKind = boostKind;
 
       const prev = track.snapshots[track.snapshots.length - 1];
       if (prev && !prev.alive && row.alive) {
@@ -212,6 +228,7 @@ export function createRemoteInterpolator(): RemoteInterpolator {
       track.aimX = wantAimX;
       track.aimZ = wantAimZ;
 
+      const boostSeconds = track.boostEndsAtMs > nowMs ? (track.boostEndsAtMs - nowMs) / 1000 : 0;
       return {
         x: track.renderX,
         z: track.renderZ,
@@ -219,6 +236,8 @@ export function createRemoteInterpolator(): RemoteInterpolator {
         aimZ: track.aimZ,
         charge: track.charge,
         alive: track.alive,
+        boostKind: boostSeconds > 0 ? track.boostKind : 0,
+        boostSeconds,
       };
     },
 

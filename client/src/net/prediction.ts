@@ -40,6 +40,9 @@ export type RenderTransform = {
   aimZ: number;
   charge: number;
   alive: boolean;
+  /** Live pickup boost for the body aura: kind (0 = none) and seconds left. */
+  boostKind: number;
+  boostSeconds: number;
 };
 
 class InputRingBuffer {
@@ -264,6 +267,20 @@ export function createPredictionController(): PredictionController {
         self = replayedNow;
         visualOffset.x += beforeX - self.px;
         visualOffset.z += beforeZ - self.pz;
+      } else {
+        // Inside the tolerance the prediction is kept — but server-authored state that does not
+        // move the body still has to land, or a pickup boost (which changes no position) would
+        // never reach the local client and its aura would never appear.
+        canonical = {
+          ...canonical,
+          boost_kind: replayed.boost_kind,
+          boost_until: replayed.boost_until,
+        };
+        self = {
+          ...self,
+          boost_kind: canonical.boost_kind,
+          boost_until: canonical.boost_until,
+        };
       }
     },
 
@@ -275,6 +292,8 @@ export function createPredictionController(): PredictionController {
 
     getRenderTransform(): RenderTransform | null {
       if (!initialized) return null;
+      const boostLeft =
+        self.boost_until > self.server_tick ? Number(self.boost_until - self.server_tick) / 30 : 0;
       return {
         x: self.px + visualOffset.x,
         z: self.pz + visualOffset.z,
@@ -282,6 +301,8 @@ export function createPredictionController(): PredictionController {
         aimZ: self.aim_z,
         charge: self.charge,
         alive: self.alive,
+        boostKind: boostLeft > 0 ? self.boost_kind : 0,
+        boostSeconds: boostLeft,
       };
     },
 

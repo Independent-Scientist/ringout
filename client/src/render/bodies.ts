@@ -4,6 +4,7 @@ import type { RemoteInterpolator } from '../net/interpolation';
 import type { PredictionController } from '../net/prediction';
 import type { CameraFocusInput } from './scene';
 import { buildRobot, createInstancedLimbsManager, type RobotRig } from './robot';
+import { boostColorHex } from './boost-visuals';
 
 export const TEAM_COLORS_HEX = [
   0x4cc9f0, // cyan
@@ -112,6 +113,13 @@ type BodyVisual = {
   nameSpriteMat: THREE.SpriteMaterial;
   dotMesh: THREE.Mesh;
   dotMat: THREE.MeshBasicMaterial;
+  /** Boost aura: a floor ring plus three orbiting voxel chips, visible only while boosted. */
+  auraGroup: THREE.Group;
+  auraRing: THREE.Mesh;
+  auraRingMat: THREE.MeshBasicMaterial;
+  auraChips: THREE.Mesh[];
+  auraChipMat: THREE.MeshBasicMaterial;
+  auraPhase: number;
   wasAlive: boolean;
   elimElapsed: number;
   lastX: number;
@@ -191,6 +199,8 @@ export function createBodyRenderer(
   const sharedSelfRingGeo = new THREE.RingGeometry(PLAYER_R * 1.34, PLAYER_R * 1.56, 36);
   const sharedDotGeo = new THREE.CircleGeometry(0.22, 16);
   const sharedChargeBarGeo = new THREE.PlaneGeometry(1.6, 0.24);
+  const sharedAuraRingGeo = new THREE.RingGeometry(PLAYER_R * 1.5, PLAYER_R * 1.85, 40);
+  const sharedAuraChipGeo = new THREE.BoxGeometry(0.16, 0.16, 0.16);
   const shadowTexture = createBlobShadowTexture();
   const sharedShadowMat = new THREE.MeshBasicMaterial({
     map: shadowTexture,
@@ -316,6 +326,32 @@ export function createBodyRenderer(
     dotMesh.visible = false;
     group.add(dotMesh);
 
+    // Boost aura. Three orbiting voxel chips carry the "I am carrying something" read from
+    // across the arena; the floor ring says which, and both thin out as the timer runs down.
+    const auraGroup = new THREE.Group();
+    auraGroup.visible = false;
+    const auraRingMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      // Normal blending keeps the ring's colour; additive over this floor saturates to white.
+    });
+    const auraRing = new THREE.Mesh(sharedAuraRingGeo, auraRingMat);
+    auraRing.rotation.x = -Math.PI / 2;
+    auraRing.position.y = 0.045;
+    auraGroup.add(auraRing);
+
+    const auraChipMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const auraChips: THREE.Mesh[] = [];
+    for (let chip = 0; chip < 3; chip++) {
+      const mesh = new THREE.Mesh(sharedAuraChipGeo, auraChipMat);
+      auraChips.push(mesh);
+      auraGroup.add(mesh);
+    }
+    group.add(auraGroup);
+
     scene.add(group);
     return {
       group,
@@ -328,6 +364,12 @@ export function createBodyRenderer(
       nameSpriteMat,
       dotMesh,
       dotMat,
+      auraGroup,
+      auraRing,
+      auraRingMat,
+      auraChips,
+      auraChipMat,
+      auraPhase: 0,
     };
   }
 
@@ -342,6 +384,8 @@ export function createBodyRenderer(
     visual.selfRingMat.dispose();
     visual.nameSpriteMat.dispose();
     visual.dotMat.dispose();
+    visual.auraRingMat.dispose();
+    visual.auraChipMat.dispose();
     visuals.delete(key);
   }
 
@@ -391,6 +435,12 @@ export function createBodyRenderer(
           nameSpriteMat: created.nameSpriteMat,
           dotMesh: created.dotMesh,
           dotMat: created.dotMat,
+          auraGroup: created.auraGroup,
+          auraRing: created.auraRing,
+          auraRingMat: created.auraRingMat,
+          auraChips: created.auraChips,
+          auraChipMat: created.auraChipMat,
+          auraPhase: 0,
           wasAlive: true,
           elimElapsed: 0,
           lastX: initialX,
@@ -495,6 +545,7 @@ export function createBodyRenderer(
           visual.selfRing.visible = false;
           visual.nameSprite.visible = false;
           visual.dotMesh.visible = false;
+          visual.auraGroup.visible = false;
           if (t < 1) {
             visual.mesh.visible = true;
             const curScale = 1 - t;
@@ -548,6 +599,39 @@ export function createBodyRenderer(
         );
 
         limbsManager.updateInstance(slotIdx, visual.robot, true, 1, 0);
+
+        // Boost aura: colour is the boost's, chips orbit faster for the buffs and sink for the
+        // slow, and everything fades as the timer runs out so you can read the clock off it.
+        const boostKind = transform.boostKind ?? 0;
+        const boostSeconds = transform.boostSeconds ?? 0;
+        if (boostKind > 0 && boostSeconds > 0) {
+          visual.auraGroup.visible = true;
+          const color = boostColorHex(boostKind);
+          visual.auraRingMat.color.setHex(color);
+          visual.auraChipMat.color.setHex(color);
+          const spin = boostKind === 2 ? 3.6 : boostKind === 3 ? 0.9 : 2.0;
+          visual.auraPhase += dt * spin;
+          const lifeFade = Math.min(1, boostSeconds / 0.7);
+          const blink = boostSeconds < 2 ? 0.55 + 0.45 * Math.sin(nowMs * 0.022) : 1;
+          const breathe = 0.5 + 0.5 * Math.sin(visual.auraPhase * 1.6);
+          visual.auraRing.scale.setScalar(1 + 0.05 * breathe);
+          visual.auraRingMat.opacity = (0.42 + 0.22 * breathe) * lifeFade * blink;
+          const orbitRadius = 0.62;
+          const chipY = boostKind === 3 ? 0.28 : 0.85;
+          for (let chip = 0; chip < visual.auraChips.length; chip++) {
+            const mesh = visual.auraChips[chip]!;
+            const angle = visual.auraPhase + (chip * Math.PI * 2) / visual.auraChips.length;
+            const bob = Math.sin(visual.auraPhase * 2 + chip) * 0.05;
+            mesh.position.set(
+              Math.cos(angle) * orbitRadius,
+              chipY + bob * (boostKind === 3 ? 0.4 : 1),
+              Math.sin(angle) * orbitRadius
+            );
+            mesh.rotation.set(visual.auraPhase * 0.7, angle, 0);
+          }
+        } else {
+          visual.auraGroup.visible = false;
+        }
 
         const posSlotIdx = activePositionsView.length;
         if (posSlotIdx < focusPositions.length) {

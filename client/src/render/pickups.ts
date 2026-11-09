@@ -15,24 +15,11 @@ export type PickupRow = {
   pz: number;
 };
 
-const COLORS: Record<number, number> = {
-  1: 0xffb020, // POWER — amber fist
-  2: 0xff3b3b, // HASTE — red bolt
-  3: 0x4aa8ff, // HEAVY — blue crystals
-};
-
-const NAMES: Record<number, string> = { 1: 'POWER', 2: 'HASTE', 3: 'SLOWED' };
+export { boostColorCss, boostName } from './boost-visuals';
+import { boostColorHex } from './boost-visuals';
 
 export function pickupColor(kind: number): number {
-  return COLORS[kind] ?? 0xffffff;
-}
-
-export function boostName(kind: number): string {
-  return NAMES[kind] ?? '';
-}
-
-export function boostColorCss(kind: number): string {
-  return `#${pickupColor(kind).toString(16).padStart(6, '0')}`;
+  return boostColorHex(kind);
 }
 
 type PickupVisual = {
@@ -74,11 +61,13 @@ export function createPickupRenderer(scene: THREE.Scene): PickupRenderer {
     let assets = shared.get(kind);
     if (!assets) {
       const color = pickupColor(kind);
+      // POWER already sits on the brightest hue of the three; it needs the least glow.
+      const glow = kind === 1 ? 0.1 : 0.14;
       assets = {
         geometry: buildBoostGeometry(kind, color),
         material: new THREE.MeshStandardMaterial({
           vertexColors: true,
-          emissive: new THREE.Color(color).multiplyScalar(0.3),
+          emissive: new THREE.Color(color).multiplyScalar(glow),
           metalness: 0.15,
           roughness: 0.4,
           emissiveIntensity: 1.0,

@@ -121,7 +121,10 @@ export function buildBoostGeometry(kind: number, color: number): THREE.BufferGeo
   const size = new THREE.Vector3();
   merged.boundingBox!.getSize(size);
   const tallest = Math.max(size.x, size.y, size.z);
-  const scale = tallest > 0 ? 2.0 / tallest : 1;
+  // The fist is a compact block, so at equal height it reads much bigger than the bolt or the
+  // crystal cluster; per-kind scaling evens out how heavy each one looks on the floor.
+  const perKind = kind === 1 ? 0.78 : kind === 3 ? 0.92 : 1;
+  const scale = (tallest > 0 ? 1.55 / tallest : 1) * perKind;
   merged.scale(scale, scale, scale);
   merged.computeVertexNormals();
   return merged;

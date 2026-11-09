@@ -272,6 +272,12 @@ window.addEventListener('keydown', (event) => {
 
 (window as any).__ringoutBoost = () => activeConn.getSelfBoost();
 (window as any).__ringoutPickupCount = () => pickupRenderer.count();
+(window as any).__ringoutBoosts = () =>
+  [...activeConn.connection.db.body.iter()].map((b) => ({
+    name: b.name,
+    kind: b.boostKind,
+    secondsLeft: b.boostUntil > b.serverTick ? Number(b.boostUntil - b.serverTick) / 30 : 0,
+  }));
 (window as any).__ringoutPickups = () =>
   [...activeConn.connection.db.pickup.iter()].map((p) => ({ kind: p.kind, px: p.px, pz: p.pz }));
 (window as any).__ringoutSelf = () => {

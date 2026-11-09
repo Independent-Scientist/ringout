@@ -11,6 +11,9 @@ export type BodyState = {
   kz: number;
   aim_x: number;
   aim_z: number;
+  /** Active pickup boost and the tick it lapses (BOOST_* in constants). */
+  boost_kind: number;
+  boost_until: bigint;
   charge: number;
   alive: boolean;
   elim_order: number;
@@ -135,21 +138,37 @@ export function stepBody<T extends BodyState>(
     };
   }
 
-  // 2. Charge while shove button is held
+  // 2. Pickup boosts scale the two numbers the player feels. They live on the body, so the
+  //    client predicts them from the same row it reconciles against.
+  const boostKind = b.boost_until > tick ? b.boost_kind : C.BOOST_NONE;
+  const speedMult =
+    boostKind === C.BOOST_HASTE
+      ? C.BOOST_HASTE_SPEED_MULT
+      : boostKind === C.BOOST_HEAVY
+        ? C.BOOST_HEAVY_SPEED_MULT
+        : 1;
+  const shoveMult =
+    boostKind === C.BOOST_POWER
+      ? C.BOOST_POWER_SHOVE_MULT
+      : boostKind === C.BOOST_HEAVY
+        ? C.BOOST_HEAVY_SHOVE_MULT
+        : 1;
+
+  // 3. Charge while shove button is held
   const chargeDelta = i.dash ? dt / C.CHARGE_TIME : 0;
   const charge = Math.min(1, b.charge + chargeDelta);
 
-  // 3. Stagger: a live shove takes authority away from the stick without removing it
+  // 4. Stagger: a live shove takes authority away from the stick without removing it
   const knockbackSpeed = Math.hypot(b.kx, b.kz);
   const authority = knockbackSpeed > C.STAGGER_MIN ? C.STAGGER_CONTROL : 1;
 
-  // 4. Movement: approach target velocity stably without overshoot
+  // 5. Movement: approach target velocity stably without overshoot
   let vx = b.vx;
   let vz = b.vz;
   const moveLength = Math.hypot(i.mx, i.mz);
   if (moveLength > C.EPSILON) {
-    const targetVx = (i.mx / moveLength) * C.MAX_SPEED * authority;
-    const targetVz = (i.mz / moveLength) * C.MAX_SPEED * authority;
+    const targetVx = (i.mx / moveLength) * C.MAX_SPEED * authority * speedMult;
+    const targetVz = (i.mz / moveLength) * C.MAX_SPEED * authority * speedMult;
     const accelRate = Math.min(1, C.MOVE_ACCEL * dt);
     vx += (targetVx - vx) * accelRate;
     vz += (targetVz - vz) * accelRate;
@@ -159,13 +178,13 @@ export function stepBody<T extends BodyState>(
     vz *= friction;
   }
 
-  // 5. Release = shove (server-only trigger; never predicted for hits). The lunge is
+  // 6. Release = shove (server-only trigger; never predicted for hits). The lunge is
   //    knockback, so the shover's own stick cannot eat it either.
   let kx = b.kx;
   let kz = b.kz;
   let cooldownUntil = b.cooldown_until;
   if (!i.dash && charge > C.SHOVE_MIN_CHARGE && tick >= b.cooldown_until) {
-    const shovePower = C.SHOVE_MIN + (C.SHOVE_MAX - C.SHOVE_MIN) * charge;
+    const shovePower = (C.SHOVE_MIN + (C.SHOVE_MAX - C.SHOVE_MIN) * charge) * shoveMult;
     const lunge = shovePower * (1 - C.SELF_RECOIL);
     kx += aimX * lunge;
     kz += aimZ * lunge;

@@ -20,6 +20,9 @@ export type ServerBodySnapshot = {
   /** Knockback velocity, authored by the server: shove lunges and collision impulses. */
   kx?: number;
   kz?: number;
+  /** Active pickup boost and its expiry tick. Predicted, because it scales movement and shove. */
+  boostKind?: number;
+  boostUntil?: bigint;
   aimX: number;
   aimZ: number;
   charge: number;
@@ -92,6 +95,8 @@ function fromRow(row: ServerBodySnapshot): BodyState {
     // rather than poisoning the replay with NaN.
     kx: row.kx ?? 0,
     kz: row.kz ?? 0,
+    boost_kind: row.boostKind ?? 0,
+    boost_until: row.boostUntil ?? 0n,
     aim_x: row.aimX,
     aim_z: row.aimZ,
     charge: row.charge,
@@ -133,6 +138,8 @@ export function createPredictionController(): PredictionController {
     vz: 0,
     kx: 0,
     kz: 0,
+    boost_kind: 0,
+    boost_until: 0n,
     aim_x: 0,
     aim_z: -1,
     charge: 0,

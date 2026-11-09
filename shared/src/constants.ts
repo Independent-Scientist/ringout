@@ -32,6 +32,32 @@ export const KNOCKBACK_MIN = 0.05; // u/s below which the channel snaps to zero
 export const STAGGER_CONTROL = 0.35; // fraction of MAX_SPEED the stick may ask for while staggered
 export const STAGGER_MIN = 2.0; // u/s of live knockback that counts as staggered
 
+// Pickups: contested boosts that spawn on a ring inside the arena.
+// They exist to turn "everyone identical" rounds into a race for a resource, so the
+// spawn is visible before it can be taken and the kind cycles in a fixed order.
+export const PICKUP_FIRST_S = 6; // first spawn after the round goes live
+export const PICKUP_EVERY_S = 9; // cadence while the round runs
+export const PICKUP_MAX_ALIVE = 2;
+export const PICKUP_RING_FACTOR = 0.45; // spawn radius as a fraction of the current arena radius
+export const PICKUP_GRAB_R = 0.45; // reach beyond the body radius
+export const PICKUP_ARM_S = 1.2; // visible but not collectable for this long
+export const PICKUP_LIFETIME_S = 11;
+
+// Boost kinds, stored on the body so the client can predict the effect exactly.
+export const BOOST_NONE = 0;
+export const BOOST_POWER = 1; // heavier shove
+export const BOOST_HASTE = 2; // faster feet
+export const BOOST_HEAVY = 3; // power-down: slower and weaker
+
+export const BOOST_POWER_S = 8;
+export const BOOST_HASTE_S = 8;
+export const BOOST_HEAVY_S = 7;
+
+export const BOOST_POWER_SHOVE_MULT = 1.7;
+export const BOOST_HASTE_SPEED_MULT = 1.35;
+export const BOOST_HEAVY_SPEED_MULT = 0.72;
+export const BOOST_HEAVY_SHOVE_MULT = 0.65;
+
 // Arena boundaries and shrinking
 export const ARENA_R_START = 14;
 export const ARENA_R_END = 5;

@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "check": "tsc -p shared/tsconfig.json --noEmit && tsc -p module/tsconfig.json --noEmit && tsc -p client/tsconfig.json --noEmit",
-    "test": "node --test tools/determinism.test.ts tools/momentum.test.ts tools/brain.test.ts",
+    "test": "node --test tools/determinism.test.ts tools/momentum.test.ts tools/brain.test.ts tools/boost.test.ts",
     "test:cpu": "node tools/cpu-match.ts",
     "build:module": "cd module && spacetime build",
     "publish:local": "spacetime publish ringout-dev --server local --delete-data=always --yes",

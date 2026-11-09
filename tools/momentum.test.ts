@@ -15,6 +15,8 @@ function makeBody(px: number, pz: number, aimX: number, aimZ: number, charge = 0
     vz: 0,
     kx: 0,
     kz: 0,
+    boost_kind: 0,
+    boost_until: 0n,
     aim_x: aimX,
     aim_z: aimZ,
     charge,

@@ -24,6 +24,8 @@ export const Body = __t.object("Body", {
   kz: __t.f32(),
   aimX: __t.f32(),
   aimZ: __t.f32(),
+  boostKind: __t.u8(),
+  boostUntil: __t.u64(),
   charge: __t.f32(),
   alive: __t.bool(),
   elimOrder: __t.u8(),
@@ -118,6 +120,17 @@ export const MatchTick = __t.object("MatchTick", {
   matchId: __t.u64(),
 });
 export type MatchTick = __Infer<typeof MatchTick>;
+
+export const Pickup = __t.object("Pickup", {
+  id: __t.u64(),
+  matchId: __t.u64(),
+  kind: __t.u8(),
+  px: __t.f32(),
+  pz: __t.f32(),
+  armedTick: __t.u64(),
+  expiresTick: __t.u64(),
+});
+export type Pickup = __Infer<typeof Pickup>;
 
 export const Player = __t.object("Player", {
   id: __t.identity(),

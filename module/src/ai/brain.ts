@@ -33,6 +33,11 @@ export type BotRival = {
   alive: boolean;
 };
 
+export type BotPickup = {
+  px: number;
+  pz: number;
+};
+
 export type BotMemory = {
   targetId: bigint;
   releaseAtTick: bigint;
@@ -119,7 +124,8 @@ export function think(
   tick: bigint,
   memory: BotMemory,
   persona: BotPersona,
-  reactionTicks: number
+  reactionTicks: number,
+  pickups: readonly BotPickup[] = []
 ): BotDecision {
   const holding = memory.releaseAtTick !== 0n && tick < memory.releaseAtTick;
   const decided = memory.aimX !== 0 || memory.aimZ !== 0;
@@ -156,10 +162,27 @@ export function think(
   //    before anything else, at a weight that beats a chase.
   const rimDistance = Math.hypot(self.px, self.pz);
   const rimDanger = arenaRadius - rimDistance;
+
+  // The floor is a resource now: a boost nearby is worth breaking off the fight for, because
+  // whoever owns it decides the next exchange.
+  let nearestPickup: BotPickup | undefined;
+  let pickupDistance = Infinity;
+  for (const pick of pickups) {
+    const d = Math.hypot(pick.px - self.px, pick.pz - self.pz);
+    if (d < pickupDistance) {
+      pickupDistance = d;
+      nearestPickup = pick;
+    }
+  }
+
   let moveX = 0;
   let moveZ = 0;
   if (rimDanger < persona.edgeCaution) {
     const [cx, cz] = steerTowards(self.px, self.pz, 0, 0, 1.6);
+    moveX = cx;
+    moveZ = cz;
+  } else if (nearestPickup && pickupDistance < distance + 3.5) {
+    const [cx, cz] = steerTowards(self.px, self.pz, nearestPickup.px, nearestPickup.pz, 1);
     moveX = cx;
     moveZ = cz;
   } else if (distance > persona.preferredRange) {

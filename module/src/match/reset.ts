@@ -33,6 +33,10 @@ export function resetMatchToLobby(ctx: any, currentMatch: any, scheduledId?: big
     });
   }
 
+  for (const pick of ctx.db.pickup.match_id.filter(currentMatch.id)) {
+    ctx.db.pickup.id.delete(pick.id);
+  }
+
   for (const score of ctx.db.matchScore.match_id.filter(currentMatch.id)) {
     ctx.db.matchScore.id.delete(score.id);
   }

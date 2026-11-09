@@ -57,6 +57,7 @@ import InputFrameRow from "./input_frame_table";
 import MatchRow from "./match_table";
 import MatchScoreRow from "./match_score_table";
 import MatchTickRow from "./match_tick_table";
+import PickupRow from "./pickup_table";
 
 /** Type-only namespace exports for generated type groups. */
 
@@ -169,6 +170,20 @@ const tablesSchema = __schema({
       { name: 'match_tick_scheduled_id_key', constraint: 'unique', columns: ['scheduledId'] },
     ],
   }, MatchTickRow),
+  pickup: __table({
+    name: 'pickup',
+    indexes: [
+      { accessor: 'id', name: 'pickup_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'match_id', name: 'pickup_match_id_idx_btree', algorithm: 'btree', columns: [
+        'matchId',
+      ] },
+    ],
+    constraints: [
+      { name: 'pickup_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, PickupRow),
   player: __table({
     name: 'player',
     indexes: [

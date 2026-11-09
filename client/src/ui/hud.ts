@@ -52,6 +52,26 @@ export const hud = {
     text('rows', String(metrics.rowsPerSec));
   },
 
+  /** Shows the local player's active pickup boost, or hides the chip when there is none. */
+  setBoost(kind: number, secondsLeft: number, name: string, colorCss: string): void {
+    const chip = document.getElementById('boost-chip');
+    if (!chip) return;
+    if (kind === 0) {
+      chip.style.display = 'none';
+      return;
+    }
+    chip.style.display = 'block';
+    const nameEl = document.getElementById('boost-name');
+    const leftEl = document.getElementById('boost-left');
+    if (nameEl) {
+      nameEl.textContent = name;
+      nameEl.style.color = colorCss;
+    }
+    if (leftEl) {
+      leftEl.textContent = secondsLeft.toFixed(1);
+    }
+  },
+
   setSpectator(): void {
     const container = document.getElementById('hud-metrics');
     if (container) {

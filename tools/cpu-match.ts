@@ -40,6 +40,7 @@ const applied = new Promise<void>((resolve) => {
     tables.matchScore,
     tables.event,
     tables.bot,
+    tables.pickup,
   ]);
 });
 
@@ -82,10 +83,43 @@ console.log(
 
 await connection.reducers.startMatch({});
 
-const shoveEvents: string[] = [];
-const hitEvents: string[] = [];
-const elimEvents: string[] = [];
-const roundEnds: string[] = [];
+// The human seat walks to whichever pickup is nearest: that is what proves the floor works,
+// since a stationary body would never touch one.
+let mySeq = 1;
+const pickupWalkTimer = setInterval(() => {
+  const pickups = [...connection.db.pickup.iter()].filter((p) => p.matchId === matchId);
+  const me = [...connection.db.body.iter()].find(
+    (b) => b.matchId === matchId && b.owner.toHexString() === myHex
+  );
+  if (!me || !me.alive) return;
+  let best: { px: number; pz: number } | undefined;
+  let bestDist = Infinity;
+  for (const p of pickups) {
+    const d = Math.hypot(p.px - me.px, p.pz - me.pz);
+    if (d < bestDist) {
+      bestDist = d;
+      best = p;
+    }
+  }
+  const dx = best ? best.px - me.px : 0;
+  const dz = best ? best.pz - me.pz : 0;
+  const len = Math.hypot(dx, dz);
+  const mx = len > 0.2 ? dx / len : 0;
+  const mz = len > 0.2 ? dz / len : 0;
+  connection.reducers
+    .submitInputs({ samples: [{ seq: mySeq++, mx, mz, ax: mx || 1, az: mz, dash: false }] })
+    .catch(() => {});
+}, 33);
+
+const seenEvents = { shove: new Set<string>(), hit: new Set<string>(), elim: new Set<string>(), round: new Set<string>(), pickup: new Set<string>() };
+const counts = () => ({
+  shove: seenEvents.shove.size,
+  hit: seenEvents.hit.size,
+  elim: seenEvents.elim.size,
+  round: seenEvents.round.size,
+  pickup: seenEvents.pickup.size,
+});
+let maxPickupsOnFloor = 0;
 const started = Date.now();
 let lastLog = 0;
 let maxTick = 0n;
@@ -97,11 +131,11 @@ await new Promise<void>((resolve) => {
   const poll = () => {
     for (const ev of connection.db.event.iter()) {
       const key = `${ev.id}`;
-      const label = `${ev.kind}@${ev.tick}`;
-      if (ev.kind === 'shove' && !shoveEvents.includes(key)) shoveEvents.push(key);
-      if (ev.kind === 'hit' && !hitEvents.includes(key)) hitEvents.push(key);
-      if (ev.kind === 'elim' && !elimEvents.includes(key)) elimEvents.push(label);
-      if (ev.kind === 'round_end' && !roundEnds.includes(key)) roundEnds.push(label);
+      if (ev.kind === 'shove') seenEvents.shove.add(key);
+      else if (ev.kind === 'hit') seenEvents.hit.add(key);
+      else if (ev.kind === 'elim') seenEvents.elim.add(key);
+      else if (ev.kind === 'round_end' || ev.kind === 'match_end') seenEvents.round.add(key);
+      else if (ev.kind.startsWith('pickup_')) seenEvents.pickup.add(key);
     }
     for (const b of connection.db.body.iter()) {
       if (b.matchId !== matchId) continue;
@@ -122,6 +156,10 @@ await new Promise<void>((resolve) => {
         aimPrev.changes += 1;
       }
     }
+    maxPickupsOnFloor = Math.max(
+      maxPickupsOnFloor,
+      [...connection.db.pickup.iter()].filter((p) => p.matchId === matchId).length
+    );
     const now = Date.now();
     if (now - lastLog > 5000) {
       lastLog = now;
@@ -138,12 +176,14 @@ await new Promise<void>((resolve) => {
   poll();
 });
 
+clearInterval(pickupWalkTimer);
+
 const m = matchId !== undefined ? connection.db.match.id.find(matchId) : undefined;
 console.log('\n--- result ---');
 console.log(`match status: ${m?.status} round=${m?.round} score=${m?.scoreA}-${m?.scoreB} winner=${m?.winner?.toHexString().slice(0, 8) ?? '-'}`);
 console.log(`ticks advanced: ${m?.tick} (last body tick ${maxTick})`);
 console.log(
-  `shove releases: ${shoveEvents.length}, contact hits: ${hitEvents.length}, eliminations: ${elimEvents.length}, round ends: ${roundEnds.length}`
+  `shove releases: ${counts().shove}, contact hits: ${counts().hit}, eliminations: ${counts().elim}, round ends: ${counts().round}, pickups taken: ${counts().pickup} (max on floor ${maxPickupsOnFloor})`
 );
 console.log('bodies:');
 const failures: string[] = [];
@@ -164,15 +204,17 @@ for (const b of connection.db.bot.iter()) {
   );
 }
 
-if (shoveEvents.length === 0) failures.push('no shove events — the bots never released');
-if (elimEvents.length === 0) failures.push('no eliminations — nobody ever got pushed out');
+if (counts().shove === 0) failures.push('no shove events — the bots never released');
+if (counts().elim === 0) failures.push('no eliminations — nobody ever got pushed out');
 if ((m?.tick ?? 0n) < BigInt(RUN_SECONDS * 20)) failures.push('the tick barely advanced');
 for (const [id, body] of bodiesSeen) {
   const isHumanSeat = body.name === 'harness';
   if (!isHumanSeat && body.maxSpeed < 1) failures.push(`${body.name} never moved`);
   void id;
 }
-if (hitEvents.length === 0) failures.push('no contact hits — the shoves never landed');
+if (counts().hit === 0) failures.push('no contact hits — the shoves never landed');
+if (counts().pickup === 0) failures.push('no pickups were taken — the floor is inert');
+if (maxPickupsOnFloor === 0) failures.push('no pickup ever spawned');
 
 if (failures.length > 0) {
   console.error('\nFAILED:\n  ' + failures.join('\n  '));

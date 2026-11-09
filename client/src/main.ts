@@ -7,6 +7,7 @@ import { metrics } from './net/metrics';
 import { createPredictionController } from './net/prediction';
 import { createBodyRenderer } from './render/bodies';
 import { createFxRenderer } from './render/fx';
+import { boostColorCss, boostName, createPickupRenderer } from './render/pickups';
 import { createScene } from './render/scene';
 import { hud } from './ui/hud';
 
@@ -51,6 +52,7 @@ const prediction = createPredictionController();
 const interpolator = createRemoteInterpolator();
 const bodyRenderer = createBodyRenderer(view.scene, prediction, interpolator);
 const fxRenderer = createFxRenderer(view.scene);
+const pickupRenderer = createPickupRenderer(view.scene);
 
 hud.setStatus('connecting');
 hud.setMuted(sfx.isMuted());
@@ -102,6 +104,10 @@ const activeConn = connect(
       } else if (kind === 'elim') {
         sfx.play('elim');
         hud.flashElimination();
+      } else if (kind.startsWith('pickup_')) {
+        const boostKind = kind === 'pickup_power' ? 1 : kind === 'pickup_haste' ? 2 : 3;
+        pickupRenderer.burst(x, z, boostKind);
+        sfx.play('hit');
       } else if (kind === 'round_end' || kind === 'match_end') {
         view.pulseEdge();
       }
@@ -264,6 +270,16 @@ window.addEventListener('keydown', (event) => {
   }
 });
 
+(window as any).__ringoutBoost = () => activeConn.getSelfBoost();
+(window as any).__ringoutPickups = () =>
+  [...activeConn.connection.db.pickup.iter()].map((p) => ({ kind: p.kind, px: p.px, pz: p.pz }));
+(window as any).__ringoutSelf = () => {
+  const hex = activeConn.getMyIdentity();
+  const self = [...activeConn.connection.db.body.iter()].find(
+    (b) => b.owner.toHexString() === hex
+  );
+  return self ? { px: self.px, pz: self.pz, alive: self.alive, boost: self.boostKind } : null;
+};
 (window as any).__ringoutPoseAssertions = () => bodyRenderer.getPoseAssertions();
 (window as any).__ringoutShadowAssertions = () => bodyRenderer.getShadowAssertions();
 (window as any).__ringoutChargeAssertions = () =>
@@ -281,12 +297,14 @@ if (import.meta.hot) {
     sfx.dispose();
     bodyRenderer.dispose();
     fxRenderer.dispose();
+    pickupRenderer.dispose();
     view.dispose();
   });
 }
 
 let lastFrameAt = performance.now();
 let accumulator = 0;
+let pickupSyncCounter = 0;
 
 function frame(now: number) {
   const frameStart = performance.now();
@@ -305,6 +323,21 @@ function frame(now: number) {
     accumulator -= CLIENT_DT;
     activeConn.stepFixed(CLIENT_DT);
   }
+
+  // Pickups and the boost chip refresh off the row stream at ~10 Hz; the meshes animate per frame.
+  pickupSyncCounter += 1;
+  if (pickupSyncCounter % 6 === 0) {
+    const rows = [...activeConn.connection.db.pickup.iter()].map((row) => ({
+      id: row.id,
+      kind: row.kind,
+      px: row.px,
+      pz: row.pz,
+    }));
+    pickupRenderer.sync(rows, performance.now());
+    const boost = activeConn.getSelfBoost();
+    hud.setBoost(boost.kind, boost.secondsLeft, boostName(boost.kind), boostColorCss(boost.kind));
+  }
+  pickupRenderer.update(dt, now);
 
   const focus = bodyRenderer.update(dt, view.camera);
   fxRenderer.update(dt);

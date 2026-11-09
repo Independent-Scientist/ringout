@@ -5,6 +5,15 @@ import { personaFromSeed, think } from '../ai/brain';
 import { resetMatchToLobby } from '../match/reset';
 import { radiusAt, resolveCollisions, stepBody } from '../sim/step';
 
+/** Deterministic 0..2pi from an integer: the layout replays identically. */
+function pickupAngle(seed: number): number {
+  let h = (seed ^ 0x9e3779b9) >>> 0;
+  h = Math.imul(h ^ (h >>> 16), 0x21f0aaad) >>> 0;
+  h = Math.imul(h ^ (h >>> 15), 0x735a2d97) >>> 0;
+  h = (h ^ (h >>> 15)) >>> 0;
+  return (h / 4294967296) * Math.PI * 2;
+}
+
 function emitEvent(
   ctx: any,
   matchId: bigint,
@@ -62,6 +71,8 @@ function respawnBodiesForRound(ctx: any, bodies: any[], nextTick: bigint): void 
       kz: 0,
       aim_x: aimX,
       aim_z: aimZ,
+      boost_kind: C.BOOST_NONE,
+      boost_until: 0n,
       charge: 0,
       alive: true,
       elim_order: 0,
@@ -221,6 +232,38 @@ export const tick = spacetimedb.reducer(
         ? radiusAt(Number(roundTicks) / C.TICK_HZ)
         : C.ARENA_R_START;
 
+    // Pickups: spawn on a ring inside the arena on a fixed cadence measured from the round
+    // going live, so both players can see the next one coming and race for it. The kind
+    // cycles in a fixed order (power, haste, heavy) and the angle is a hash of the round and
+    // the spawn index, which keeps the layout deterministic and replayable.
+    if (currentMatch.status === 'playing') {
+      for (const old of ctx.db.pickup.match_id.filter(currentMatch.id)) {
+        if (nextTick >= old.expires_tick) {
+          ctx.db.pickup.id.delete(old.id);
+        }
+      }
+      const livePickups = [...ctx.db.pickup.match_id.filter(currentMatch.id)];
+      const spawnEvery = BigInt(C.PICKUP_EVERY_S * C.TICK_HZ);
+      const firstSpawn = BigInt(C.PICKUP_FIRST_S * C.TICK_HZ);
+      const due = roundTicks >= firstSpawn && (roundTicks - firstSpawn) % spawnEvery === 0n;
+      if (due && livePickups.length < C.PICKUP_MAX_ALIVE) {
+        const index = Number((roundTicks - firstSpawn) / spawnEvery);
+        const kinds = [C.BOOST_POWER, C.BOOST_HASTE, C.BOOST_HEAVY];
+        const kind = kinds[index % kinds.length]!;
+        const angle = pickupAngle(Number(currentMatch.id % 100000n) * 7919 + index * 104729);
+        const radius = C.PICKUP_RING_FACTOR * nextArenaRadius;
+        ctx.db.pickup.insert({
+          id: 0n,
+          match_id: currentMatch.id,
+          kind,
+          px: Math.cos(angle) * radius,
+          pz: Math.sin(angle) * radius,
+          armed_tick: nextTick + BigInt(Math.ceil(C.PICKUP_ARM_S * C.TICK_HZ)),
+          expires_tick: nextTick + BigInt(Math.ceil(C.PICKUP_LIFETIME_S * C.TICK_HZ)),
+        });
+      }
+    }
+
     const consumedInputIds: bigint[] = [];
     const updatedBodies = bodies.map((b) => {
       const pendingInputs = [...ctx.db.inputFrame.owner.filter(b.owner)]
@@ -251,7 +294,11 @@ export const tick = spacetimedb.reducer(
             steerZ: botRow.steer_z,
           },
           persona,
-          Math.max(persona.reactionTicks, latencyTicks)
+          Math.max(persona.reactionTicks, latencyTicks),
+          [...ctx.db.pickup.match_id.filter(currentMatch.id)].map((pick) => ({
+            px: pick.px,
+            pz: pick.pz,
+          }))
         );
         const frame = intentToFrame(applyCommands(IDLE_INTENT, decision.commands));
         pendingInputs.push({
@@ -389,6 +436,47 @@ export const tick = spacetimedb.reducer(
       }
     }
 
+    if (currentMatch.status === 'playing') {
+      const grabReach = C.PLAYER_R + C.PICKUP_GRAB_R;
+      for (const pick of [...ctx.db.pickup.match_id.filter(currentMatch.id)]) {
+        if (nextTick < pick.armed_tick) continue;
+        for (let i = 0; i < updatedBodies.length; i++) {
+          const body = updatedBodies[i]!;
+          if (!body.alive) continue;
+          if (Math.hypot(body.px - pick.px, body.pz - pick.pz) > grabReach) continue;
+          const durationTicks =
+            pick.kind === C.BOOST_POWER
+              ? C.BOOST_POWER_S
+              : pick.kind === C.BOOST_HASTE
+                ? C.BOOST_HASTE_S
+                : C.BOOST_HEAVY_S;
+          updatedBodies[i] = {
+            ...body,
+            boost_kind: pick.kind,
+            boost_until: nextTick + BigInt(durationTicks * C.TICK_HZ),
+          };
+          ctx.db.pickup.id.delete(pick.id);
+          emitEvent(
+            ctx,
+            currentMatch.id,
+            pick.kind === C.BOOST_POWER
+              ? 'pickup_power'
+              : pick.kind === C.BOOST_HASTE
+                ? 'pickup_haste'
+                : 'pickup_heavy',
+            body.owner,
+            undefined,
+            pick.px,
+            pick.pz,
+            0,
+            0,
+            nextTick
+          );
+          break;
+        }
+      }
+    }
+
     let bodyWrites = 0;
     let newlyEliminated = 0;
     for (let index = 0; index < bodies.length; index++) {
@@ -407,6 +495,8 @@ export const tick = spacetimedb.reducer(
         original.kz !== updated.kz ||
         original.aim_x !== updated.aim_x ||
         original.aim_z !== updated.aim_z ||
+        original.boost_kind !== updated.boost_kind ||
+        original.boost_until !== updated.boost_until ||
         original.charge !== updated.charge ||
         original.alive !== updated.alive ||
         original.elim_order !== updated.elim_order ||

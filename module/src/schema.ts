@@ -58,6 +58,9 @@ export const body = table(
     kz: t.f32(),
     aim_x: t.f32(),
     aim_z: t.f32(),
+    /** Active pickup boost (BOOST_*), and the tick it expires. Read by the shared integrator. */
+    boost_kind: t.u8(),
+    boost_until: t.u64(),
     charge: t.f32(),
     alive: t.bool(),
     elim_order: t.u8(),
@@ -82,6 +85,24 @@ export const inputFrame = table(
     az: t.f32(),
     dash: t.bool(),
     applied: t.bool(),
+  }
+);
+
+/**
+ * A boost lying on the arena floor. One row per live pickup; the tick spawns, arms and
+ * collects them, so both runners see exactly the same floor.
+ */
+export const pickup = table(
+  { name: 'pickup', public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    match_id: t.u64().index('btree'),
+    kind: t.u8(), // BOOST_POWER | BOOST_HASTE | BOOST_HEAVY
+    px: t.f32(),
+    pz: t.f32(),
+    /** Collectable from this tick; before it the pickup is only a warning. */
+    armed_tick: t.u64(),
+    expires_tick: t.u64(),
   }
 );
 
@@ -155,6 +176,7 @@ export const MatchScore = matchScore;
 export const Event = event;
 export const MatchTick = matchTick;
 export const Bot = bot;
+export const Pickup = pickup;
 
 /** The four robot colours, by index. Kept here so the server and the HUD agree. */
 export const PLAYER_COLORS = ['cyan', 'magenta', 'violet', 'amber'] as const;
@@ -167,6 +189,7 @@ const spacetimedb = schema({
   matchScore,
   event,
   bot,
+  pickup,
   matchTick,
 });
 

@@ -24,6 +24,8 @@ export default __t.row({
   kz: __t.f32(),
   aimX: __t.f32().name("aim_x"),
   aimZ: __t.f32().name("aim_z"),
+  boostKind: __t.u8().name("boost_kind"),
+  boostUntil: __t.u64().name("boost_until"),
   charge: __t.f32(),
   alive: __t.bool(),
   elimOrder: __t.u8().name("elim_order"),

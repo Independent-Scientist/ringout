@@ -85,6 +85,8 @@ export type ActiveConnection = {
   toggleReady: () => void;
   startMatch: () => void;
   rematch: () => void;
+  /** The local body's live pickup boost, for the HUD chip. */
+  getSelfBoost: () => { kind: number; secondsLeft: number };
   /** Seat a server-side CPU opponent in the lobby. */
   addBot: () => void;
   /** Remove the most recently seated CPU. */
@@ -124,6 +126,8 @@ function toBodySnapshot(row: Body): ServerBodySnapshot {
     vz: row.vz,
     kx: row.kx,
     kz: row.kz,
+    boostKind: row.boostKind,
+    boostUntil: row.boostUntil,
     aimX: row.aimX,
     aimZ: row.aimZ,
     charge: row.charge,
@@ -894,7 +898,14 @@ export function connect(
         });
       }, joinDelayMs);
     })
-    .subscribe([tables.player, tables.match, tables.body, tables.matchScore, tables.event]);
+    .subscribe([
+      tables.player,
+      tables.match,
+      tables.body,
+      tables.matchScore,
+      tables.event,
+      tables.pickup,
+    ]);
 
   const recordRowIfMeasured = () => {
     if (!autopilot?.pin) metrics.recordRow();
@@ -1147,6 +1158,16 @@ export function connect(
     },
     rematch() {
       latency.send(() => connection.reducers.rematch({}).catch(() => {}));
+    },
+    getSelfBoost() {
+      const self = [...connection.db.body.iter()].find(
+        (b) => b.owner.toHexString() === myIdentityHex
+      );
+      if (!self || self.boostKind === 0 || self.boostUntil <= self.serverTick) {
+        return { kind: 0, secondsLeft: 0 };
+      }
+      const ticksLeft = Number(self.boostUntil - self.serverTick);
+      return { kind: self.boostKind, secondsLeft: Math.max(0, ticksLeft / 30) };
     },
     addBot() {
       latency.send(() => connection.reducers.addBot({}).catch(() => {}));

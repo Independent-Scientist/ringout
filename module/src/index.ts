@@ -497,6 +497,8 @@ export const start_match = spacetimedb.reducer((ctx) => {
       kz: 0,
       aim_x: aimX,
       aim_z: aimZ,
+      boost_kind: C.BOOST_NONE,
+      boost_until: 0n,
       charge: 0,
       alive: true,
       elim_order: 0,

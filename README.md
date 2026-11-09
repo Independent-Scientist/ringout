@@ -7,10 +7,14 @@ Server-authoritative physics arena for 2–4 players. Three.js client, Spacetime
 
 **[Play it](https://independent-scientist.github.io/ringout/)** — no install, and two browser tabs are two
 players. Alone, seat up to three CPU opponents from the lobby (`+ CPU`) and play a full match.
-**Netcode write-up:** [`docs/netcode.md`](docs/netcode.md). **Demo:** [70-second clip
-(mp4)](docs/media/demo.mp4) of a round on the deployed build.
+**Netcode write-up:** [`docs/netcode.md`](docs/netcode.md). **Demo:** [38-second clip
+(mp4)](docs/media/demo.mp4) of three CPU opponents fighting over a floor of boosts and hazards.
 
-![A round on the deployed build: four robots converging and an elimination](docs/media/hero.gif)
+![Three CPU robots colliding around blue hazard crystals, one of them wearing an amber POWER aura](docs/media/hero.gif)
+
+Both captures are CPU-only rounds (the human walked itself out), taken from the local build with `?hud=0` to
+hide the debug panel and `?bloom=0` because this workstation renders through SwiftShader — the deployed build
+ships with bloom on. Nothing was staged: the bots were playing each other.
 
 On a phone it locks to landscape and gives you a stick and a shove button:
 

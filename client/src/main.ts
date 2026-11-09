@@ -33,6 +33,11 @@ const rotatePrompt = document.querySelector<HTMLElement>('#rotate-prompt');
 
 bindTouchControls(touchStick, touchKnob, touchShove);
 
+// ?hud=0 gives a clean frame for captures: no debug panel, no lobby bar.
+if (new URLSearchParams(window.location.search).get('hud') === '0') {
+  document.body.classList.add('clean-capture');
+}
+
 const portraitMql = window.matchMedia('(orientation: portrait)');
 function syncRotatePrompt(): void {
   const isPortrait = portraitMql.matches;

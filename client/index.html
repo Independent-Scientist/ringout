@@ -427,6 +427,11 @@
           width: auto;
         }
       }
+          /* ?hud=0 hides the debug panel for clean captures; the round score stays. */
+      body.clean-capture #hud,
+      body.clean-capture #lobby-bar {
+        display: none !important;
+      }
     </style>
   </head>
   <body>

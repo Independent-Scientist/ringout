@@ -87,7 +87,10 @@ await connection.reducers.startMatch({});
 // since a stationary body would never touch one.
 let mySeq = 1;
 const pickupWalkTimer = setInterval(() => {
-  const pickups = [...connection.db.pickup.iter()].filter((p) => p.matchId === matchId);
+  // Hazards are walked around, exactly as a player would: only buffs are worth a detour.
+  const pickups = [...connection.db.pickup.iter()].filter(
+    (p) => p.matchId === matchId && p.kind !== 3
+  );
   const me = [...connection.db.body.iter()].find(
     (b) => b.matchId === matchId && b.owner.toHexString() === myHex
   );
@@ -111,13 +114,14 @@ const pickupWalkTimer = setInterval(() => {
     .catch(() => {});
 }, 33);
 
-const seenEvents = { shove: new Set<string>(), hit: new Set<string>(), elim: new Set<string>(), round: new Set<string>(), pickup: new Set<string>() };
+const seenEvents = { shove: new Set<string>(), hit: new Set<string>(), elim: new Set<string>(), round: new Set<string>(), pickup: new Set<string>(), heavy: new Set<string>() };
 const counts = () => ({
   shove: seenEvents.shove.size,
   hit: seenEvents.hit.size,
   elim: seenEvents.elim.size,
   round: seenEvents.round.size,
   pickup: seenEvents.pickup.size,
+  heavy: seenEvents.heavy.size,
 });
 let maxPickupsOnFloor = 0;
 const started = Date.now();
@@ -135,6 +139,7 @@ await new Promise<void>((resolve) => {
       else if (ev.kind === 'hit') seenEvents.hit.add(key);
       else if (ev.kind === 'elim') seenEvents.elim.add(key);
       else if (ev.kind === 'round_end' || ev.kind === 'match_end') seenEvents.round.add(key);
+      else if (ev.kind === 'pickup_heavy') seenEvents.heavy.add(key);
       else if (ev.kind.startsWith('pickup_')) seenEvents.pickup.add(key);
     }
     for (const b of connection.db.body.iter()) {
@@ -183,7 +188,7 @@ console.log('\n--- result ---');
 console.log(`match status: ${m?.status} round=${m?.round} score=${m?.scoreA}-${m?.scoreB} winner=${m?.winner?.toHexString().slice(0, 8) ?? '-'}`);
 console.log(`ticks advanced: ${m?.tick} (last body tick ${maxTick})`);
 console.log(
-  `shove releases: ${counts().shove}, contact hits: ${counts().hit}, eliminations: ${counts().elim}, round ends: ${counts().round}, pickups taken: ${counts().pickup} (max on floor ${maxPickupsOnFloor})`
+  `shove releases: ${counts().shove}, contact hits: ${counts().hit}, eliminations: ${counts().elim}, round ends: ${counts().round}, pickups taken: ${counts().pickup}, hazards taken: ${counts().heavy} (max on floor ${maxPickupsOnFloor})`
 );
 console.log('bodies:');
 const failures: string[] = [];
@@ -214,6 +219,8 @@ for (const [id, body] of bodiesSeen) {
 }
 if (counts().hit === 0) failures.push('no contact hits — the shoves never landed');
 if (counts().pickup === 0) failures.push('no pickups were taken — the floor is inert');
+// Bots must treat HEAVY as a hazard. A body can still be shoved onto one, so allow a little.
+if (counts().heavy > 1) failures.push(`bots walked into ${counts().heavy} hazards`);
 if (maxPickupsOnFloor === 0) failures.push('no pickup ever spawned');
 
 if (failures.length > 0) {

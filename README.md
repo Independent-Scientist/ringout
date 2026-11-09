@@ -51,10 +51,12 @@ stays. Best of three rounds, ninety seconds per round.
   not, and adding it needed no branch in the physics. It is also not superhuman: the client reports the round
   trip it measures, and a CPU looks at the world only once per that interval, so on a 170 ms link it is as slow
   to notice your dodge as you are to see its shove.
-- **A floor worth fighting over.** Every nine seconds a boost drops on a ring inside the arena: an amber fist
-  (`POWER`, heavier shove), a red bolt (`HASTE`, faster feet) or a blue crystal cluster (`HEAVY`, slower and
-  weaker — the trap). Each is visible from across the disc and arms 1.2 s after it lands, so taking one is a
-  race, not a lottery, and the CPU breaks off the fight to contest it. Measured on the shared integrator
+- **A floor worth fighting over, and around.** Buffs alternate: an amber voxel fist (`POWER`, heavier shove)
+  and a red bolt (`HASTE`, faster feet) drop every nine seconds, at most two at a time. Hazards run on their own
+  faster clock: blue crystal clusters (`HEAVY`, slower and weaker) fall as a pair every five seconds, up to
+  three at once, further out on the disc — so the floor becomes a ring of traps you have to route around while
+  still contesting the buffs. Everything arms 1.2 s after it lands, and the CPU both races for buffs and steers
+  around hazards. Measured on the shared integrator
   (`tools/boost.test.ts`): POWER puts 1.34x the impulse into the body it hits, HASTE covers 8.19 m in the first
   second against 6.07 m, HEAVY drops that to about 3.6 m.
 - **A latency simulator you can toggle.** 0 / 100 / 250 ms one-way, wired through both directions, with the

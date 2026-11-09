@@ -36,6 +36,8 @@ export type BotRival = {
 export type BotPickup = {
   px: number;
   pz: number;
+  /** BOOST_* kind. Hazards (HEAVY) are avoided, buffs are raced for. */
+  kind: number;
 };
 
 export type BotMemory = {
@@ -163,15 +165,28 @@ export function think(
   const rimDistance = Math.hypot(self.px, self.pz);
   const rimDanger = arenaRadius - rimDistance;
 
-  // The floor is a resource now: a boost nearby is worth breaking off the fight for, because
-  // whoever owns it decides the next exchange.
-  let nearestPickup: BotPickup | undefined;
-  let pickupDistance = Infinity;
+  // The floor is a resource and a hazard: a buff nearby is worth breaking off the fight for,
+  // while a HEAVY is a trap to walk around. Both are read from the same list.
+  let nearestBuff: BotPickup | undefined;
+  let buffDistance = Infinity;
+  let avoidX = 0;
+  let avoidZ = 0;
   for (const pick of pickups) {
-    const d = Math.hypot(pick.px - self.px, pick.pz - self.pz);
-    if (d < pickupDistance) {
-      pickupDistance = d;
-      nearestPickup = pick;
+    const dxPick = pick.px - self.px;
+    const dzPick = pick.pz - self.pz;
+    const d = Math.hypot(dxPick, dzPick);
+    if (pick.kind === C.BOOST_HEAVY) {
+        const avoidRange = 3.0;
+      if (d < avoidRange && d > C.EPSILON) {
+        // Push away harder the closer it is; two hazards near each other add up, which is
+        // what makes the pair spawns act like a wall with a gap in it.
+        const weight = (1 - d / avoidRange) * 2.2;
+        avoidX -= (dxPick / d) * weight;
+        avoidZ -= (dzPick / d) * weight;
+      }
+    } else if (d < buffDistance) {
+      buffDistance = d;
+      nearestBuff = pick;
     }
   }
 
@@ -181,8 +196,8 @@ export function think(
     const [cx, cz] = steerTowards(self.px, self.pz, 0, 0, 1.6);
     moveX = cx;
     moveZ = cz;
-  } else if (nearestPickup && pickupDistance < distance + 3.5) {
-    const [cx, cz] = steerTowards(self.px, self.pz, nearestPickup.px, nearestPickup.pz, 1);
+  } else if (nearestBuff && buffDistance < distance + 3.5) {
+    const [cx, cz] = steerTowards(self.px, self.pz, nearestBuff.px, nearestBuff.pz, 1);
     moveX = cx;
     moveZ = cz;
   } else if (distance > persona.preferredRange) {
@@ -195,6 +210,12 @@ export function think(
     moveX = cx;
     moveZ = cz;
   }
+
+  // Hazards bend the path rather than replace the goal: added to whatever the bot wanted to
+  // do, they curve it around a HEAVY instead of making it stop, and when a shove throws it
+  // into range the sum points out of the trap.
+  moveX += avoidX * 1.2;
+  moveZ += avoidZ * 1.2;
 
   // 2. Aim at the target with a fixed per-bot error, rotated deterministically per tick so
   //    the error looks like a hand and not a clock. This aim is then held for reactionTicks,

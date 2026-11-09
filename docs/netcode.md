@@ -49,10 +49,17 @@ measurement lives in `tools/momentum.test.ts` and runs on the same `stepBody` th
 
 ## Pickups
 
-Identical bodies made every round a coin flip, so the floor carries a contested resource. A pickup spawns on a
-ring at `0.45 x` the current arena radius, every nine seconds from the moment the round goes live, in a fixed
-kind order (`POWER -> HASTE -> HEAVY`); the angle is a hash of the match id and the spawn index, which keeps the
-layout deterministic and replayable.
+Identical bodies made every round a coin flip, so the floor carries a contested resource and a hazard. Two
+schedules, both measured from the moment the round goes live and both deterministic:
+
+| Drop | Cadence | Cap | Ring | Kind |
+| --- | --- | --- | --- | --- |
+| Buff | every 9 s | 2 alive | `0.45 x` arena radius | POWER and HASTE alternating |
+| Hazard | every 5 s, as a pair at opposite angles | 3 alive | `0.62 x` arena radius | HEAVY |
+
+The angle is a hash of the match id and the spawn index, so the layout is replayable. Hazards sit further out
+and accumulate, which is the point: they form a broken ring that has to be crossed to reach the rim, while the
+buffs stay in the middle where the fight is.
 
 The client draws each kind as a voxel object built from an integer cell list and merged into one geometry —
 an amber fist, a red bolt, a blue crystal cluster — floating over a flat halo. The camera looks down at about
@@ -71,8 +78,11 @@ in sync across the lobby reset, the rematch path and the empty-match teardown.
 | HASTE | red voxel bolt | top speed x1.35 | 8 s |
 | HEAVY | top speed x0.60, shove x0.50 — the trap you learn to leave alone | 5 s |
 
-The CPU brain treats a nearby pickup as worth breaking off for (`pickupDistance < distance + 3.5`), because a
-server-side opponent that ignored the floor would hand every boost to the human.
+The CPU brain reads the same list with kinds attached: a buff within `distance + 3.5` is worth breaking off
+for, and a hazard inside 3 m adds a repulsion vector to whatever the bot already wanted to do, so it curves its
+path around the trap instead of stopping. Without the kind test the bot simply ran to the nearest object, which
+in practice meant walking into every HEAVY on the floor; measured on the harness, hazard pickups went from 2 per
+35 s run to 0 (and 1 in a 60 s run, from a body shoved onto one).
 
 ## CPU seats and the command path
 

@@ -35,10 +35,18 @@ export const STAGGER_MIN = 2.0; // u/s of live knockback that counts as staggere
 // Pickups: contested boosts that spawn on a ring inside the arena.
 // They exist to turn "everyone identical" rounds into a race for a resource, so the
 // spawn is visible before it can be taken and the kind cycles in a fixed order.
-export const PICKUP_FIRST_S = 6; // first spawn after the round goes live
-export const PICKUP_EVERY_S = 9; // cadence while the round runs
-export const PICKUP_MAX_ALIVE = 2;
-export const PICKUP_RING_FACTOR = 0.45; // spawn radius as a fraction of the current arena radius
+export const PICKUP_FIRST_S = 6; // first buff after the round goes live
+export const PICKUP_EVERY_S = 9; // buff cadence while the round runs
+export const PICKUP_MAX_ALIVE = 2; // buffs on the floor at once
+
+// Hazards are the floor's own opinion: more of them, more often, in pairs.
+export const PICKUP_HEAVY_FIRST_S = 4;
+export const PICKUP_HEAVY_EVERY_S = 5;
+export const PICKUP_HEAVY_MAX_ALIVE = 3;
+export const PICKUP_HEAVY_PAIR = true; // spawn two at opposite angles each cycle
+
+export const PICKUP_RING_FACTOR = 0.45; // buff spawn radius, fraction of the current arena radius
+export const PICKUP_HEAVY_RING_FACTOR = 0.62; // hazards sit further out, where you have to route
 export const PICKUP_GRAB_R = 0.45; // reach beyond the body radius
 export const PICKUP_ARM_S = 1.2; // visible but not collectable for this long
 export const PICKUP_LIFETIME_S = 11;

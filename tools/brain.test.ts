@@ -51,4 +51,38 @@ for (let t = 0; t < slow.length; t++) {
   }
 }
 
+// Hazards are avoided, buffs are chased. The rival is parked far away so the steer command
+// reflects the pickup decision alone.
+{
+  const farRival = [{ id: 2n, px: 9, pz: 9, alive: true }];
+  const idle = { px: 0, pz: 0, charge: 0, cooldown_until: 0n };
+  const fresh = { ...memory };
+
+  const hazardAhead = think(idle, farRival, 50, 0n, fresh, persona, 1, [
+    { px: 0.9, pz: 0, kind: 3 },
+  ]);
+  const hazardSteer = hazardAhead.commands.find((c) => c.kind === 'steer');
+  assert.ok(hazardSteer!.mx < -0.3, `must steer away from a hazard, got mx=${hazardSteer!.mx}`);
+
+  const buffAhead = think(idle, farRival, 50, 0n, fresh, persona, 1, [
+    { px: 0.9, pz: 0, kind: 1 },
+  ]);
+  const buffSteer = buffAhead.commands.find((c) => c.kind === 'steer');
+  assert.ok(buffSteer!.mx > 0.3, `must steer toward a buff, got mx=${buffSteer!.mx}`);
+
+  // A pair of hazards straddling the bot must not average out to "walk between them".
+  const pair = think(idle, farRival, 50, 0n, fresh, persona, 1, [
+    { px: 1.2, pz: 0, kind: 3 },
+    { px: -1.2, pz: 0, kind: 3 },
+    { px: 0, pz: 1.2, kind: 3 },
+  ]);
+  const pairSteer = pair.commands.find((c) => c.kind === 'steer');
+  const pairLen = Math.hypot(pairSteer!.mx, pairSteer!.mz);
+  assert.ok(pairLen > 0.2, 'a hazard ring must still push the bot somewhere');
+
+  console.log(
+    `hazard steer mx=${hazardSteer!.mx.toFixed(2)} | buff steer mx=${buffSteer!.mx.toFixed(2)} | hazard ring push=${pairLen.toFixed(2)}`
+  );
+}
+
 console.log('Brain reaction test passed.');

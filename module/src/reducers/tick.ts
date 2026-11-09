@@ -232,45 +232,75 @@ export const tick = spacetimedb.reducer(
         ? radiusAt(Number(roundTicks) / C.TICK_HZ)
         : C.ARENA_R_START;
 
-    // Pickups: spawn on a ring inside the arena on a fixed cadence measured from the round
-    // going live, so both players can see the next one coming and race for it. The kind
-    // cycles in a fixed order (power, haste, heavy) and the angle is a hash of the round and
-    // the spawn index, which keeps the layout deterministic and replayable.
+    // Pickups. Two schedules, both measured from the round going live so players can learn
+    // them: buffs alternate POWER/HASTE every nine seconds and there are at most two, while
+    // hazards (HEAVY) drop as a pair every five seconds, further out, and stack up to three.
+    // The hazard count is what turns the floor into something to route around.
     if (currentMatch.status === 'playing') {
+      const buffRing = C.PICKUP_RING_FACTOR;
+      const heavyRing = C.PICKUP_HEAVY_RING_FACTOR;
       for (const old of ctx.db.pickup.match_id.filter(currentMatch.id)) {
         if (nextTick >= old.expires_tick) {
           ctx.db.pickup.id.delete(old.id);
           continue;
         }
         // The arena shrinks under a pickup placed earlier in the round. Drag it in along its
-        // own angle: a boost outside the disc cannot be contested and can only be reached by
+        // own angle: a pickup outside the disc cannot be contested and can only be reached by
         // walking out of the round.
         const distanceFromCentre = Math.hypot(old.px, old.pz);
-        const maxRadius = C.PICKUP_RING_FACTOR * nextArenaRadius;
+        const ring = old.kind === C.BOOST_HEAVY ? heavyRing : buffRing;
+        const maxRadius = ring * nextArenaRadius;
         if (distanceFromCentre > maxRadius) {
           const pull = maxRadius / distanceFromCentre;
           ctx.db.pickup.id.update({ ...old, px: old.px * pull, pz: old.pz * pull });
         }
       }
-      const livePickups = [...ctx.db.pickup.match_id.filter(currentMatch.id)];
-      const spawnEvery = BigInt(C.PICKUP_EVERY_S * C.TICK_HZ);
-      const firstSpawn = BigInt(C.PICKUP_FIRST_S * C.TICK_HZ);
-      const due = roundTicks >= firstSpawn && (roundTicks - firstSpawn) % spawnEvery === 0n;
-      if (due && livePickups.length < C.PICKUP_MAX_ALIVE) {
-        const index = Number((roundTicks - firstSpawn) / spawnEvery);
-        const kinds = [C.BOOST_POWER, C.BOOST_HASTE, C.BOOST_HEAVY];
-        const kind = kinds[index % kinds.length]!;
-        const angle = pickupAngle(Number(currentMatch.id % 100000n) * 7919 + index * 104729);
-        const radius = C.PICKUP_RING_FACTOR * nextArenaRadius;
+
+      const live = [...ctx.db.pickup.match_id.filter(currentMatch.id)];
+      const buffsAlive = live.filter((p) => p.kind !== C.BOOST_HEAVY).length;
+      const hazardsAlive = live.filter((p) => p.kind === C.BOOST_HEAVY).length;
+      const seed = Number(currentMatch.id % 100000n) * 7919;
+      const spawnPickup = (kind: number, angle: number, ring: number, armedTicks: bigint) => {
+        const radius = ring * nextArenaRadius;
         ctx.db.pickup.insert({
           id: 0n,
           match_id: currentMatch.id,
           kind,
           px: Math.cos(angle) * radius,
           pz: Math.sin(angle) * radius,
-          armed_tick: nextTick + BigInt(Math.ceil(C.PICKUP_ARM_S * C.TICK_HZ)),
+          armed_tick: nextTick + armedTicks,
           expires_tick: nextTick + BigInt(Math.ceil(C.PICKUP_LIFETIME_S * C.TICK_HZ)),
         });
+      };
+      const armTicks = BigInt(Math.ceil(C.PICKUP_ARM_S * C.TICK_HZ));
+
+      // Buffs: POWER / HASTE alternating.
+      const buffEvery = BigInt(C.PICKUP_EVERY_S * C.TICK_HZ);
+      const buffFirst = BigInt(C.PICKUP_FIRST_S * C.TICK_HZ);
+      if (
+        roundTicks >= buffFirst &&
+        (roundTicks - buffFirst) % buffEvery === 0n &&
+        buffsAlive < C.PICKUP_MAX_ALIVE
+      ) {
+        const index = Number((roundTicks - buffFirst) / buffEvery);
+        const kind = index % 2 === 0 ? C.BOOST_POWER : C.BOOST_HASTE;
+        spawnPickup(kind, pickupAngle(seed + index * 104729), buffRing, armTicks);
+      }
+
+      // Hazards: a pair at opposite angles, so the floor gains two threats at once and you
+      // cannot simply walk the ring to dodge them.
+      const heavyEvery = BigInt(C.PICKUP_HEAVY_EVERY_S * C.TICK_HZ);
+      const heavyFirst = BigInt(C.PICKUP_HEAVY_FIRST_S * C.TICK_HZ);
+      if (roundTicks >= heavyFirst && (roundTicks - heavyFirst) % heavyEvery === 0n) {
+        const index = Number((roundTicks - heavyFirst) / heavyEvery);
+        const room = C.PICKUP_HEAVY_MAX_ALIVE - hazardsAlive;
+        if (room > 0) {
+          const base = pickupAngle(seed + index * 15485863 + 7);
+          const count = Math.min(room, C.PICKUP_HEAVY_PAIR ? 2 : 1);
+          for (let drop = 0; drop < count; drop++) {
+            spawnPickup(C.BOOST_HEAVY, base + drop * Math.PI, heavyRing, armTicks);
+          }
+        }
       }
     }
 
@@ -308,6 +338,7 @@ export const tick = spacetimedb.reducer(
           [...ctx.db.pickup.match_id.filter(currentMatch.id)].map((pick) => ({
             px: pick.px,
             pz: pick.pz,
+            kind: pick.kind,
           }))
         );
         const frame = intentToFrame(applyCommands(IDLE_INTENT, decision.commands));
